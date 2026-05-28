@@ -124,7 +124,7 @@
         <div class="m"><span>囲む体積 V</span><span id="mt-vol">—</span></div>
         <div class="m"><span>頂点 / 面</span><span id="mt-n">—</span></div>
       </div>
-      <div class="hint">球は半径 R が <code>dR/dt=−2/R</code> に従い <code>T=R₀²/4=A₀/16π</code> で1点に崩壊、表面積は一定速度 <code>−16π</code> で減少します。<b>ダンベル形は3次元では細いくびれがピンチ</b>し特異点を生じます (PDF 図1.1.6)。</div>
+      <div class="hint">球は半径 R が <code>dR/dt=−2/R</code> に従い <code>T=R₀²/4=A₀/16π</code> で1点に崩壊、表面積は一定速度 <code>−16π</code> で減少します。<b>ダンベル形は3次元では細いくびれがピンチ</b>し特異点を生じます (PDF 図1.1.6)。<b>トーラスは凸でないため1点には崩壊せず</b>、管が中心円へピンチします（凸曲面のみ丸い1点へ収束：Huisken の定理）。</div>
     </div>
   </div>
 </div>
@@ -408,8 +408,10 @@ function step(){
   if(S.extinct) return;
   const minArea=assemble();
   const V=volumeNow();
+  // 体積が消失 → 限界集合の次元を境界ボックスの広がりで判定（点 / 曲線 など）
+  if(V<S.initialVol*0.0015){ markSingular(classifyCollapse()); return; }
+  // 体積は残るが局所的に面が潰れた → ネックピンチ
   if(minArea<1e-7){ markSingular('ネックピンチ特異点が発生しました'); return; }
-  if(V<S.initialVol*0.0015){ markSingular('1点へ崩壊しました'); return; }
 
   const bx=new Float64Array(S.nv), by=new Float64Array(S.nv), bz=new Float64Array(S.nv);
   for(let i=0;i<S.nv;i++){ bx[i]=S.mass[i]*S.px[i]; by[i]=S.mass[i]*S.py[i]; bz[i]=S.mass[i]*S.pz[i]; }
@@ -421,6 +423,22 @@ function step(){
     S.px[i]=nx[i]; S.py[i]=ny[i]; S.pz[i]=nz[i];
   }
   S.time+=S.dt;
+}
+
+// 境界ボックスの3方向の広がり
+function extents(){
+  let xn=1e18,xp=-1e18,yn=1e18,yp=-1e18,zn=1e18,zp=-1e18;
+  for(let i=0;i<S.nv;i++){ const x=S.px[i],y=S.py[i],z=S.pz[i];
+    if(x<xn)xn=x; if(x>xp)xp=x; if(y<yn)yn=y; if(y>yp)yp=y; if(z<zn)zn=z; if(z>zp)zp=z; }
+  return [xp-xn, yp-yn, zp-zn];
+}
+// 体積消失時に，限界集合が点か低次元集合（曲線など）かを判定
+function classifyCollapse(){
+  const thr=0.12*(S.initMaxE||1);
+  const large=extents().filter(v=>v>thr).length;
+  if(large<=0) return '1点へ崩壊しました（点状特異点）';
+  if(large>=2) return '中心の円（曲線）へ収縮しました：管がピンチ（点ではありません）';
+  return '線分（1次元）へ収縮しました';
 }
 
 function markSingular(msg){
@@ -526,6 +544,7 @@ function loadPreset(name){
   S.time=0; S.extinct=false; S.prevArea=null; S.prevTime=null;
   assemble(); computeMeanCurvature();
   S.initialArea=surfaceArea(); S.initialVol=volumeNow();
+  S.initMaxE=Math.max(...extents());
   S.Ttheory=S.initialArea/(16*Math.PI);
   document.getElementById('banner').style.display='none';
   document.getElementById('st-T').textContent=S.Ttheory.toFixed(3);

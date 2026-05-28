@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>平均曲率流シミュレータ — 2次元曲線短縮流</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel2: #1c232d;
+    --border: #2a323d;
+    --text: #d6dde6;
+    --muted: #8b97a6;
+    --accent: #4ea1ff;
+    --accent2: #ffb454;
+    --good: #5ad19a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+    height: 100%;
+  }
+  #app { display: flex; height: 100vh; overflow: hidden; }
+  #stage { flex: 1; position: relative; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; background: radial-gradient(circle at 50% 45%, #131a24 0%, #0e1116 70%); cursor: crosshair; }
+  #sidebar {
+    width: 320px; flex: 0 0 320px; background: var(--panel);
+    border-left: 1px solid var(--border); overflow-y: auto;
+    padding: 16px 16px 40px; font-size: 13px;
+  }
+  h1 { font-size: 16px; margin: 0 0 2px; letter-spacing: .02em; }
+  .sub { color: var(--muted); font-size: 11px; margin: 0 0 14px; line-height: 1.5; }
+  .group { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .group h2 { font-size: 12px; margin: 0 0 10px; color: var(--accent); text-transform: none; letter-spacing: .03em; font-weight: 600; }
+  .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  button {
+    background: #233040; color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; font-size: 12px; cursor: pointer;
+    transition: background .12s, border-color .12s; font-family: inherit;
+  }
+  button:hover { background: #2c3c50; border-color: #3a4a5e; }
+  button.primary { background: var(--accent); color: #05101e; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { background: #6fb4ff; }
+  button.active { background: var(--accent2); color: #2a1c05; border-color: var(--accent2); font-weight: 600; }
+  button.wide { flex: 1; }
+  .preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  label.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 9px 0; }
+  label.row span.lab { color: var(--muted); flex: 0 0 auto; }
+  label.row span.val { color: var(--text); font-variant-numeric: tabular-nums; min-width: 56px; text-align: right; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  .check { display: flex; align-items: center; gap: 8px; margin: 8px 0; cursor: pointer; }
+  .check input { accent-color: var(--accent); width: 15px; height: 15px; }
+  #metrics { font-variant-numeric: tabular-nums; line-height: 1.7; }
+  #metrics .m { display: flex; justify-content: space-between; }
+  #metrics .m span:first-child { color: var(--muted); }
+  #metrics .key { color: var(--good); }
+  #status {
+    position: absolute; top: 14px; left: 16px; font-size: 12px; color: var(--muted);
+    background: rgba(14,17,22,.7); padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
+    pointer-events: none; backdrop-filter: blur(4px);
+  }
+  #status b { color: var(--accent2); }
+  #banner {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    background: rgba(20,26,34,.92); border: 1px solid var(--accent2); color: var(--accent2);
+    padding: 14px 22px; border-radius: 12px; font-size: 15px; font-weight: 600;
+    display: none; pointer-events: none; text-align: center;
+  }
+  .hint { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 6px; }
+  .legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .legend .bar { height: 10px; flex: 1; border-radius: 4px; background: linear-gradient(90deg,#3b82f6,#e5e7eb,#ef4444); }
+  hr.sep { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+  code { background: #0e1116; padding: 1px 5px; border-radius: 4px; color: var(--accent2); font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="status">時刻 t = <b id="st-t">0.000</b> &nbsp; / &nbsp; 理論消滅時刻 T = <b id="st-T">—</b></div>
+    <div id="banner"></div>
+  </div>
+  <div id="sidebar">
+    <h1>平均曲率流シミュレータ</h1>
+    <p class="sub">
+      2次元ユークリッド空間 𝔼² 内の閉曲線の曲線短縮流<br>
+      ∂F/∂t = κₜ·nₜ &nbsp;(曲率ベクトル方向への変形)
+    </p>
+    <p class="sub" style="margin-top:-8px">▸ <a href="surface3d.html" style="color:var(--accent);text-decoration:none">3次元 曲面の平均曲率流のページへ</a></p>
+
+    <div class="group">
+      <h2>再生コントロール</h2>
+      <div class="btn-row">
+        <button id="play" class="primary wide">▶ 再生</button>
+        <button id="stepBtn" class="wide">⏭ 1ステップ</button>
+        <button id="reset" class="wide">↺ リセット</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>初期曲線</h2>
+      <div class="preset-grid">
+        <button data-preset="circle">円</button>
+        <button data-preset="ellipse">楕円</button>
+        <button data-preset="star">星形 (非凸)</button>
+        <button data-preset="peanut">ダンベル形</button>
+        <button data-preset="flower">花形</button>
+        <button data-preset="square">角つき四角</button>
+        <button data-preset="spiralish">うねり曲線</button>
+        <button data-preset="cross">十字形</button>
+      </div>
+      <hr class="sep">
+      <button id="drawBtn" class="wide">✏ 自分で描く</button>
+      <div class="hint">「自分で描く」を押し、キャンバス上をドラッグして閉曲線を描いてください。離すと自動で滑らかに整えて開始位置に設定します。</div>
+    </div>
+
+    <div class="group">
+      <h2>パラメータ</h2>
+      <label class="row"><span class="lab">時間刻み Δt</span>
+        <input id="dt" type="range" min="0.0001" max="0.003" step="0.0001" value="0.0006">
+        <span class="val" id="dt-v">0.0006</span></label>
+      <label class="row"><span class="lab">点の数 N</span>
+        <input id="np" type="range" min="40" max="600" step="10" value="240">
+        <span class="val" id="np-v">240</span></label>
+      <label class="row"><span class="lab">1フレーム速度</span>
+        <input id="spf" type="range" min="1" max="40" step="1" value="6">
+        <span class="val" id="spf-v">6 步</span></label>
+    </div>
+
+    <div class="group">
+      <h2>表示</h2>
+      <label class="check"><input type="checkbox" id="opt-curv" checked> 曲率を色で表示</label>
+      <label class="check"><input type="checkbox" id="opt-trail" checked> 残像 (時刻列 {Mₜ}) を残す</label>
+      <label class="check"><input type="checkbox" id="opt-fill" checked> 内部を塗る</label>
+      <label class="check"><input type="checkbox" id="opt-redist" checked> 弧長で点を再配置 (安定化)</label>
+      <div class="legend"><span>低</span><div class="bar"></div><span>曲率 高</span></div>
+    </div>
+
+    <div class="group">
+      <h2>計測量</h2>
+      <div id="metrics">
+        <div class="m"><span>時刻 t</span><span id="mt-t">0.000</span></div>
+        <div class="m"><span>周長 L</span><span id="mt-len">—</span></div>
+        <div class="m"><span>囲む面積 A</span><span id="mt-area">—</span></div>
+        <div class="m"><span class="key">dA/dt (理論 −2π)</span><span id="mt-dadt" class="key">—</span></div>
+        <div class="m"><span>点数</span><span id="mt-n">—</span></div>
+      </div>
+      <div class="hint">単純閉曲線では面積が一定速度 <code>dA/dt = −2π ≈ −6.283</code> で減少し、時刻 <code>T = A₀/2π</code> で1点に崩壊します (Gage–Hamilton–Grayson の定理)。非凸曲線もまず凸化してから円形に崩壊します。</div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+//==================================================================
+// 平均曲率流（2次元 曲線短縮流） — Dziuk 半陰的有限要素スキーム
+//   弱形式:  ∫ ∂_t x·φ ds + ∫ x_s·φ_s ds = 0
+//   半陰的離散化（弧長は旧曲線から算出, 位置は陰的）:
+//   (M + Δt L) x^{n+1} = M x^n
+//   M: 集中質量行列(対角), L: 剛性行列(巡回三重対角)
+//==================================================================
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+let state = {
+  pts: [],          // [{x,y}] ワールド座標
+  time: 0,
+  running: false,
+  dt: 0.0006,
+  N: 240,
+  spf: 6,
+  showCurv: true,
+  showTrail: true,
+  fill: true,
+  redist: true,
+  initialArea: 0,
+  Ttheory: 0,
+  trail: [],
+  trailMark: 0,
+  extinct: false,
+  drawing: false,        // 描画モード待機
+  drawPts: [],           // 描画中の生ポイント(スクリーン)
+  isDrawing: false,
+  view: { scale: 150, cx: 0, cy: 0 },  // ワールド→スクリーン
+};
+
+//----------------------------- ビュー変換 -----------------------------
+function resize() {
+  const r = cv.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.floor(r.width * dpr);
+  cv.height = Math.floor(r.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  state.view.scale = Math.min(r.width, r.height) / 5.0; // ワールド[-2.5,2.5]が収まる
+  state.view.cx = r.width / 2;
+  state.view.cy = r.height / 2;
+  draw();
+}
+function w2s(p) {
+  return { x: state.view.cx + p.x * state.view.scale,
+           y: state.view.cy - p.y * state.view.scale };
+}
+function s2w(sx, sy) {
+  return { x: (sx - state.view.cx) / state.view.scale,
+           y: -(sy - state.view.cy) / state.view.scale };
+}
+
+//----------------------------- 幾何量 -----------------------------
+function dist(a, b) { const dx = a.x-b.x, dy = a.y-b.y; return Math.hypot(dx, dy); }
+
+function edgeLengths(pts) {
+  const n = pts.length, h = new Array(n);
+  for (let i = 0; i < n; i++) h[i] = dist(pts[i], pts[(i+1)%n]);
+  return h;
+}
+function totalLength(pts) {
+  let L = 0; const n = pts.length;
+  for (let i = 0; i < n; i++) L += dist(pts[i], pts[(i+1)%n]);
+  return L;
+}
+function signedArea(pts) {  // 反時計回りで正
+  let A = 0; const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i+1)%n];
+    A += a.x*b.y - b.x*a.y;
+  }
+  return A/2;
+}
+// 各頂点の符号付き離散曲率（色付け用）
+function curvatures(pts) {
+  const n = pts.length, k = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i-1+n)%n], p1 = pts[i], p2 = pts[(i+1)%n];
+    const e1x = p1.x-p0.x, e1y = p1.y-p0.y;
+    const e2x = p2.x-p1.x, e2y = p2.y-p1.y;
+    const cross = e1x*e2y - e1y*e2x;
+    const dot = e1x*e2x + e1y*e2y;
+    const ang = Math.atan2(cross, dot);     // 回転角
+    const len = (Math.hypot(e1x,e1y) + Math.hypot(e2x,e2y)) / 2;
+    k[i] = len > 1e-12 ? ang/len : 0;
+  }
+  return k;
+}
+
+//----------------------------- 巡回三重対角ソルバ -----------------------------
+// a:下対角(a[0]未使用), b:対角, c:上対角(c[n-1]未使用) の通常三重対角
+function tridag(a, b, c, r) {
+  const n = b.length, u = new Array(n), gam = new Array(n);
+  let bet = b[0];
+  u[0] = r[0]/bet;
+  for (let j = 1; j < n; j++) {
+    gam[j] = c[j-1]/bet;
+    bet = b[j] - a[j]*gam[j];
+    u[j] = (r[j] - a[j]*u[j-1])/bet;
+  }
+  for (let j = n-2; j >= 0; j--) u[j] -= gam[j+1]*u[j+1];
+  return u;
+}
+// 巡回三重対角 (Sherman-Morrison): alpha=A[n-1][0], beta=A[0][n-1]
+function cyclic(a, b, c, alpha, beta, r) {
+  const n = b.length;
+  const bb = b.slice();
+  const gamma = -b[0];
+  bb[0] = b[0] - gamma;
+  bb[n-1] = b[n-1] - alpha*beta/gamma;
+  const x = tridag(a, bb, c, r);
+  const u = new Array(n).fill(0);
+  u[0] = gamma; u[n-1] = alpha;
+  const z = tridag(a, bb, c, u);
+  const fact = (x[0] + beta*x[n-1]/gamma) / (1 + z[0] + beta*z[n-1]/gamma);
+  for (let i = 0; i < n; i++) x[i] -= fact*z[i];
+  return x;
+}
+
+//----------------------------- 1ステップ前進 -----------------------------
+function step() {
+  if (state.extinct) return;
+  const pts = state.pts, n = pts.length;
+  if (n < 4) return;
+  const h = edgeLengths(pts);             // h[i] = |x_{i+1}-x_i|
+  const dt = state.dt;
+
+  // 退化チェック
+  let minh = Infinity;
+  for (let i = 0; i < n; i++) minh = Math.min(minh, h[i]);
+  const A = Math.abs(signedArea(pts));
+  if (A < state.initialArea * 0.0018 || totalLength(pts) < 1e-3) {
+    markExtinct(); return;
+  }
+
+  // 係数: 行 i は M_ii x_i + dt*( (x_i-x_{i-1})/h_{i-1} + (x_i-x_{i+1})/h_i )
+  const a = new Array(n), b = new Array(n), c = new Array(n);
+  const rx = new Array(n), ry = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const hm = h[(i-1+n)%n];   // h_{i-1}
+    const hp = h[i];           // h_i
+    const m = (hm + hp) / 2;   // 集中質量
+    a[i] = -dt / hm;           // A[i][i-1]
+    c[i] = -dt / hp;           // A[i][i+1]
+    b[i] = m + dt*(1/hm + 1/hp);
+    rx[i] = m * pts[i].x;
+    ry[i] = m * pts[i].y;
+  }
+  const alpha = -dt / h[n-1];  // A[n-1][0]
+  const beta  = -dt / h[n-1];  // A[0][n-1]
+
+  const nx = cyclic(a, b, c, alpha, beta, rx);
+  const ny = cyclic(a, b, c, alpha, beta, ry);
+
+  for (let i = 0; i < n; i++) {
+    if (!isFinite(nx[i]) || !isFinite(ny[i])) { markExtinct(); return; }
+    pts[i].x = nx[i]; pts[i].y = ny[i];
+  }
+  state.time += dt;
+
+  if (state.redist) state.pts = redistribute(state.pts, n);
+
+  // 残像スナップショット (理論時刻Tを18等分した時刻で取得)
+  if (state.showTrail && state.Ttheory > 0) {
+    const seg = state.Ttheory / 18;
+    const mk = Math.floor(state.time / seg);
+    if (mk > state.trailMark) {
+      state.trailMark = mk;
+      state.trail.push(state.pts.map(p => ({x:p.x, y:p.y})));
+      if (state.trail.length > 40) state.trail.shift();
+    }
+  }
+}
+
+// 弧長で N 点に再配置（既存ポリラインの上に点を置くので形状はほぼ不変）
+function redistribute(pts, N) {
+  const n = pts.length;
+  const cum = new Array(n+1); cum[0] = 0;
+  for (let i = 0; i < n; i++) cum[i+1] = cum[i] + dist(pts[i], pts[(i+1)%n]);
+  const L = cum[n];
+  if (L < 1e-9) return pts;
+  const out = new Array(N);
+  let seg = 0;
+  for (let i = 0; i < N; i++) {
+    const target = (L * i) / N;
+    while (seg < n-1 && cum[seg+1] < target) seg++;
+    const segLen = cum[seg+1] - cum[seg];
+    const t = segLen > 1e-12 ? (target - cum[seg]) / segLen : 0;
+    const p = pts[seg], q = pts[(seg+1)%n];
+    out[i] = { x: p.x + (q.x-p.x)*t, y: p.y + (q.y-p.y)*t };
+  }
+  return out;
+}
+
+function markExtinct() {
+  state.extinct = true;
+  state.running = false;
+  document.getElementById('play').textContent = '▶ 再生';
+  document.getElementById('play').classList.remove('active');
+  const ban = document.getElementById('banner');
+  ban.textContent = '1点へ崩壊しました (t ≈ ' + state.time.toFixed(3) + ')';
+  ban.style.display = 'block';
+}
+
+//----------------------------- 初期曲線プリセット -----------------------------
+function makeCurve(N, radiusFn) {  // radiusFn(theta) -> {x,y} or radius
+  const pts = [];
+  for (let i = 0; i < N; i++) {
+    const th = (2*Math.PI*i)/N;
+    pts.push(radiusFn(th));
+  }
+  return pts;
+}
+const PRESETS = {
+  circle:  (N) => makeCurve(N, th => ({ x: 1.6*Math.cos(th), y: 1.6*Math.sin(th) })),
+  ellipse: (N) => makeCurve(N, th => ({ x: 2.1*Math.cos(th), y: 1.0*Math.sin(th) })),
+  star:    (N) => makeCurve(N, th => { const r = 1.5 + 0.6*Math.cos(5*th); return { x: r*Math.cos(th), y: r*Math.sin(th) }; }),
+  flower:  (N) => makeCurve(N, th => { const r = 1.4 + 0.35*Math.sin(8*th); return { x: r*Math.cos(th), y: r*Math.sin(th) }; }),
+  peanut:  (N) => makeCurve(N, th => {
+              // ダンベル/ピーナッツ形（カッシーニ卵形 a>c で連結, 細いくびれ）
+              const c2 = 1.0, a4 = 1.05, s2 = Math.sin(2*th);
+              const r = Math.sqrt(Math.max(0, c2*Math.cos(2*th) + Math.sqrt(a4 - c2*c2*s2*s2)));
+              const sc = 1.35;
+              return { x: sc*r*Math.cos(th), y: sc*r*Math.sin(th) };
+           }),
+  square:  (N) => makeCurve(N, th => {
+              const c = Math.cos(th), s = Math.sin(th);
+              const m = Math.max(Math.abs(c), Math.abs(s));
+              return { x: 1.5*c/m, y: 1.5*s/m };
+           }),
+  spiralish: (N) => makeCurve(N, th => { const r = 1.5 + 0.5*Math.sin(3*th) + 0.2*Math.cos(7*th); return { x: r*Math.cos(th), y: r*Math.sin(th)*0.9 }; }),
+  cross:   (N) => {
+              // 十字（プラス）形の多角形を弧長で再標本化。鋭い角がCSFで瞬時に丸まる様子の例
+              const w = 0.55, L = 1.75;
+              const corners = [[L,-w],[L,w],[w,w],[w,L],[-w,L],[-w,w],[-L,w],[-L,-w],[-w,-w],[-w,-L],[w,-L],[w,-w]]
+                .map(p => ({ x: p[0], y: p[1] }));
+              return redistribute(corners, N);
+           },
+};
+
+function loadPreset(name) {
+  const N = state.N;
+  let pts = PRESETS[name](N);
+  // 反時計回りに正規化
+  if (signedArea(pts) < 0) pts.reverse();
+  setCurve(pts);
+}
+
+function setCurve(pts) {
+  state.pts = pts;
+  state.time = 0;
+  state.extinct = false;
+  state.trail = [];
+  state.trailMark = 0;
+  state.initialArea = Math.abs(signedArea(pts));
+  state.Ttheory = state.initialArea / (2*Math.PI);
+  document.getElementById('banner').style.display = 'none';
+  document.getElementById('st-T').textContent = state.Ttheory.toFixed(3);
+  draw();
+  updateMetrics();
+}
+
+//----------------------------- 色 (発散カラーマップ) -----------------------------
+function curvColor(k, kmax) {
+  // k<0:青  k=0:白  k>0:赤
+  const t = Math.max(-1, Math.min(1, kmax > 1e-9 ? k/kmax : 0));
+  let r, g, b;
+  if (t >= 0) { r = 229 + (239-229)*t; g = 231 - (231-68)*t; b = 235 - (235-68)*t; }
+  else        { const a=-t; r = 229 - (229-59)*a; g = 231 - (231-130)*a; b = 235 + (246-235)*a; }
+  return `rgb(${r|0},${g|0},${b|0})`;
+}
+
+//----------------------------- 描画 -----------------------------
+function draw() {
+  const r = cv.parentElement.getBoundingClientRect();
+  ctx.clearRect(0, 0, r.width, r.height);
+  drawGrid(r);
+
+  // 残像
+  if (state.showTrail && state.trail.length) {
+    for (let j = 0; j < state.trail.length; j++) {
+      const alpha = 0.10 + 0.28*(j/state.trail.length);
+      drawPolyline(state.trail[j], `rgba(120,160,210,${alpha.toFixed(3)})`, 1, false, false);
+    }
+  }
+
+  const pts = state.pts;
+  if (pts.length > 2) {
+    if (state.fill) {
+      ctx.beginPath();
+      const s0 = w2s(pts[0]); ctx.moveTo(s0.x, s0.y);
+      for (let i = 1; i < pts.length; i++) { const s = w2s(pts[i]); ctx.lineTo(s.x, s.y); }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(78,161,255,0.10)';
+      ctx.fill();
+    }
+    if (state.showCurv) {
+      const k = curvatures(pts);
+      let kmax = 1e-9;
+      for (const v of k) kmax = Math.max(kmax, Math.abs(v));
+      const n = pts.length;
+      ctx.lineWidth = 2.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      for (let i = 0; i < n; i++) {
+        const s1 = w2s(pts[i]), s2 = w2s(pts[(i+1)%n]);
+        ctx.strokeStyle = curvColor((k[i]+k[(i+1)%n])/2, kmax);
+        ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.stroke();
+      }
+    } else {
+      drawPolyline(pts, '#4ea1ff', 2.4, true, false);
+    }
+  }
+
+  // 描画中プレビュー
+  if (state.isDrawing && state.drawPts.length > 1) {
+    ctx.strokeStyle = '#ffb454'; ctx.lineWidth = 2; ctx.setLineDash([5,4]);
+    ctx.beginPath(); ctx.moveTo(state.drawPts[0].x, state.drawPts[0].y);
+    for (let i = 1; i < state.drawPts.length; i++) ctx.lineTo(state.drawPts[i].x, state.drawPts[i].y);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+function drawPolyline(pts, color, lw, closed, dashed) {
+  if (pts.length < 2) return;
+  ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  const s0 = w2s(pts[0]); ctx.moveTo(s0.x, s0.y);
+  for (let i = 1; i < pts.length; i++) { const s = w2s(pts[i]); ctx.lineTo(s.x, s.y); }
+  if (closed) ctx.closePath();
+  ctx.stroke();
+}
+function drawGrid(r) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.lineWidth = 1;
+  const sc = state.view.scale;
+  const x0 = s2w(0,0).x, x1 = s2w(r.width,0).x;
+  const y0 = s2w(0,r.height).y, y1 = s2w(0,0).y;
+  ctx.beginPath();
+  for (let gx = Math.ceil(x0); gx <= x1; gx++) { const s = w2s({x:gx,y:0}); ctx.moveTo(s.x,0); ctx.lineTo(s.x,r.height); }
+  for (let gy = Math.ceil(y0); gy <= y1; gy++) { const s = w2s({x:0,y:gy}); ctx.moveTo(0,s.y); ctx.lineTo(r.width,s.y); }
+  ctx.stroke();
+  // 軸
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  const o = w2s({x:0,y:0});
+  ctx.beginPath(); ctx.moveTo(o.x,0); ctx.lineTo(o.x,r.height); ctx.moveTo(0,o.y); ctx.lineTo(r.width,o.y); ctx.stroke();
+}
+
+//----------------------------- 計測量表示 -----------------------------
+let prevArea = null, prevTime = null;
+function updateMetrics() {
+  const pts = state.pts;
+  const L = totalLength(pts);
+  const A = Math.abs(signedArea(pts));
+  document.getElementById('mt-t').textContent = state.time.toFixed(4);
+  document.getElementById('st-t').textContent = state.time.toFixed(3);
+  document.getElementById('mt-len').textContent = L.toFixed(4);
+  document.getElementById('mt-area').textContent = A.toFixed(4);
+  document.getElementById('mt-n').textContent = pts.length;
+  if (prevArea !== null && prevTime !== null && state.time > prevTime) {
+    const dadt = (A - prevArea) / (state.time - prevTime);
+    document.getElementById('mt-dadt').textContent = dadt.toFixed(3);
+  }
+  prevArea = A; prevTime = state.time;
+}
+
+//----------------------------- メインループ -----------------------------
+function frame() {
+  if (state.running && !state.extinct) {
+    for (let s = 0; s < state.spf; s++) { step(); if (state.extinct) break; }
+    updateMetrics();
+  }
+  draw();
+  requestAnimationFrame(frame);
+}
+
+//----------------------------- 描画モード（マウス入力） -----------------------------
+function resampleClosed(raw, N) {
+  // スクリーン座標の生パスをワールド座標へ→弧長で N 点に
+  const wpts = raw.map(p => s2w(p.x, p.y));
+  // 始点と終点をつなぐ
+  return redistribute(wpts, N);
+}
+cv.addEventListener('pointerdown', (e) => {
+  if (!state.drawing) return;
+  const r = cv.getBoundingClientRect();
+  state.isDrawing = true;
+  state.drawPts = [{ x: e.clientX - r.left, y: e.clientY - r.top }];
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!state.drawing || !state.isDrawing) return;
+  const r = cv.getBoundingClientRect();
+  state.drawPts.push({ x: e.clientX - r.left, y: e.clientY - r.top });
+  draw();
+});
+cv.addEventListener('pointerup', () => {
+  if (!state.drawing || !state.isDrawing) return;
+  state.isDrawing = false;
+  if (state.drawPts.length > 6) {
+    let pts = resampleClosed(state.drawPts, state.N);
+    if (signedArea(pts) < 0) pts.reverse();
+    setCurve(pts);
+  }
+  state.drawPts = [];
+  state.drawing = false;
+  document.getElementById('drawBtn').classList.remove('active');
+  cv.style.cursor = 'crosshair';
+});
+
+//----------------------------- UI 結線 -----------------------------
+function bindUI() {
+  const playBtn = document.getElementById('play');
+  playBtn.addEventListener('click', () => {
+    if (state.extinct) return;
+    state.running = !state.running;
+    playBtn.textContent = state.running ? '⏸ 一時停止' : '▶ 再生';
+    playBtn.classList.toggle('active', state.running);
+  });
+  document.getElementById('stepBtn').addEventListener('click', () => {
+    if (state.extinct) return;
+    for (let s = 0; s < state.spf; s++) { step(); if (state.extinct) break; }
+    updateMetrics(); draw();
+  });
+  document.getElementById('reset').addEventListener('click', () => {
+    state.running = false;
+    document.getElementById('play').textContent = '▶ 再生';
+    document.getElementById('play').classList.remove('active');
+    prevArea = null; prevTime = null;
+    loadPreset(currentPreset);
+  });
+
+  document.querySelectorAll('[data-preset]').forEach(b => {
+    b.addEventListener('click', () => {
+      currentPreset = b.dataset.preset;
+      state.running = false;
+      document.getElementById('play').textContent = '▶ 再生';
+      document.getElementById('play').classList.remove('active');
+      prevArea = null; prevTime = null;
+      loadPreset(currentPreset);
+    });
+  });
+
+  const drawBtn = document.getElementById('drawBtn');
+  drawBtn.addEventListener('click', () => {
+    state.drawing = !state.drawing;
+    state.running = false;
+    document.getElementById('play').textContent = '▶ 再生';
+    document.getElementById('play').classList.remove('active');
+    drawBtn.classList.toggle('active', state.drawing);
+    cv.style.cursor = state.drawing ? 'crosshair' : 'crosshair';
+  });
+
+  const dt = document.getElementById('dt');
+  dt.addEventListener('input', () => { state.dt = parseFloat(dt.value); document.getElementById('dt-v').textContent = state.dt.toFixed(4); });
+  const np = document.getElementById('np');
+  np.addEventListener('input', () => { document.getElementById('np-v').textContent = np.value; });
+  np.addEventListener('change', () => {
+    state.N = parseInt(np.value);
+    state.pts = redistribute(state.pts, state.N);
+    draw(); updateMetrics();
+  });
+  const spf = document.getElementById('spf');
+  spf.addEventListener('input', () => { state.spf = parseInt(spf.value); document.getElementById('spf-v').textContent = spf.value + ' 步'; });
+
+  document.getElementById('opt-curv').addEventListener('change', e => { state.showCurv = e.target.checked; draw(); });
+  document.getElementById('opt-trail').addEventListener('change', e => { state.showTrail = e.target.checked; if(!e.target.checked) state.trail=[]; draw(); });
+  document.getElementById('opt-fill').addEventListener('change', e => { state.fill = e.target.checked; draw(); });
+  document.getElementById('opt-redist').addEventListener('change', e => { state.redist = e.target.checked; });
+
+  window.addEventListener('resize', resize);
+}
+
+//----------------------------- 起動 -----------------------------
+let currentPreset = 'star';
+bindUI();
+resize();
+loadPreset(currentPreset);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

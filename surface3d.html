@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>平均曲率流シミュレータ — 3次元曲面</title>
+<style>
+  :root {
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --border:#2a323d;
+    --text:#d6dde6; --muted:#8b97a6; --accent:#4ea1ff; --accent2:#ffb454; --good:#5ad19a;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif; }
+  #app { display:flex; height:100vh; overflow:hidden; }
+  #stage { flex:1; position:relative; min-width:0; }
+  canvas { display:block; width:100%; height:100%; background:radial-gradient(circle at 50% 42%,#131a24 0%,#0e1116 72%); cursor:grab; }
+  canvas:active { cursor:grabbing; }
+  #sidebar { width:320px; flex:0 0 320px; background:var(--panel); border-left:1px solid var(--border);
+    overflow-y:auto; padding:16px 16px 40px; font-size:13px; }
+  h1 { font-size:16px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:11px; margin:0 0 14px; line-height:1.5; }
+  .nav { font-size:11px; margin:0 0 12px; }
+  .nav a { color:var(--accent); text-decoration:none; }
+  .nav a:hover { text-decoration:underline; }
+  .group { background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .group h2 { font-size:12px; margin:0 0 10px; color:var(--accent); font-weight:600; }
+  .btn-row { display:flex; gap:6px; flex-wrap:wrap; }
+  button { background:#233040; color:var(--text); border:1px solid var(--border); border-radius:8px;
+    padding:7px 10px; font-size:12px; cursor:pointer; transition:background .12s,border-color .12s; font-family:inherit; }
+  button:hover { background:#2c3c50; border-color:#3a4a5e; }
+  button.primary { background:var(--accent); color:#05101e; border-color:var(--accent); font-weight:600; }
+  button.primary:hover { background:#6fb4ff; }
+  button.active { background:var(--accent2); color:#2a1c05; border-color:var(--accent2); font-weight:600; }
+  button.wide { flex:1; }
+  .preset-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  label.row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:9px 0; }
+  label.row span.lab { color:var(--muted); flex:0 0 auto; }
+  label.row span.val { color:var(--text); font-variant-numeric:tabular-nums; min-width:56px; text-align:right; }
+  input[type=range] { flex:1; accent-color:var(--accent); }
+  .check { display:flex; align-items:center; gap:8px; margin:8px 0; cursor:pointer; }
+  .check input { accent-color:var(--accent); width:15px; height:15px; }
+  #metrics { font-variant-numeric:tabular-nums; line-height:1.7; }
+  #metrics .m { display:flex; justify-content:space-between; }
+  #metrics .m span:first-child { color:var(--muted); }
+  #metrics .key { color:var(--good); }
+  #status { position:absolute; top:14px; left:16px; font-size:12px; color:var(--muted);
+    background:rgba(14,17,22,.7); padding:6px 10px; border-radius:8px; border:1px solid var(--border);
+    pointer-events:none; backdrop-filter:blur(4px); }
+  #status b { color:var(--accent2); }
+  #hintbar { position:absolute; bottom:12px; left:16px; font-size:11px; color:var(--muted);
+    background:rgba(14,17,22,.6); padding:5px 9px; border-radius:7px; pointer-events:none; }
+  #banner { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(20,26,34,.92); border:1px solid var(--accent2); color:var(--accent2);
+    padding:14px 22px; border-radius:12px; font-size:15px; font-weight:600; display:none; pointer-events:none; text-align:center; }
+  .hint { color:var(--muted); font-size:11px; line-height:1.5; margin-top:6px; }
+  .legend { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); margin-top:8px; }
+  .legend .bar { height:10px; flex:1; border-radius:4px; background:linear-gradient(90deg,#3b82f6,#e5e7eb,#ef4444); }
+  hr.sep { border:none; border-top:1px solid var(--border); margin:10px 0; }
+  code { background:#0e1116; padding:1px 5px; border-radius:4px; color:var(--accent2); font-size:11px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="status">時刻 t = <b id="st-t">0.000</b> &nbsp;/&nbsp; 球の理論消滅時刻 A₀/16π = <b id="st-T">—</b></div>
+    <div id="hintbar">ドラッグで回転 / ホイールで拡大縮小</div>
+    <div id="banner"></div>
+  </div>
+  <div id="sidebar">
+    <h1>平均曲率流シミュレータ (3D)</h1>
+    <p class="sub">𝔼³ 内の閉曲面の平均曲率流<br>∂F/∂t = ℋₜ·Nₜ &nbsp;(平均曲率ベクトル ΔF 方向への変形)</p>
+    <p class="nav">▸ <a href="index.html">2次元 曲線短縮流のページへ</a></p>
+
+    <div class="group">
+      <h2>再生コントロール</h2>
+      <div class="btn-row">
+        <button id="play" class="primary wide">▶ 再生</button>
+        <button id="stepBtn" class="wide">⏭ 1ステップ</button>
+        <button id="reset" class="wide">↺ リセット</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>初期曲面</h2>
+      <div class="preset-grid">
+        <button data-preset="sphere">球</button>
+        <button data-preset="ellipsoid">楕円体</button>
+        <button data-preset="dumbbell">ダンベル形</button>
+        <button data-preset="torus">トーラス</button>
+        <button data-preset="bumpy">でこぼこ球</button>
+        <button data-preset="cube">丸み四角柱</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>パラメータ</h2>
+      <label class="row"><span class="lab">時間刻み Δt</span>
+        <input id="dt" type="range" min="0.0002" max="0.005" step="0.0002" value="0.0006">
+        <span class="val" id="dt-v">0.0006</span></label>
+      <label class="row"><span class="lab">メッシュ細分</span>
+        <input id="sub" type="range" min="2" max="4" step="1" value="3">
+        <span class="val" id="sub-v">3</span></label>
+      <label class="row"><span class="lab">1フレーム速度</span>
+        <input id="spf" type="range" min="1" max="20" step="1" value="2">
+        <span class="val" id="spf-v">2 步</span></label>
+    </div>
+
+    <div class="group">
+      <h2>表示</h2>
+      <label class="check"><input type="checkbox" id="opt-curv" checked> 平均曲率を色で表示</label>
+      <label class="check"><input type="checkbox" id="opt-wire"> ワイヤーフレーム</label>
+      <label class="check"><input type="checkbox" id="opt-spin"> 自動回転</label>
+      <div class="legend"><span>負(鞍)</span><div class="bar"></div><span>正(凸)</span></div>
+    </div>
+
+    <div class="group">
+      <h2>計測量</h2>
+      <div id="metrics">
+        <div class="m"><span>時刻 t</span><span id="mt-t">0.000</span></div>
+        <div class="m"><span>表面積 A</span><span id="mt-area">—</span></div>
+        <div class="m"><span class="key">dA/dt (球は −16π)</span><span id="mt-dadt" class="key">—</span></div>
+        <div class="m"><span>囲む体積 V</span><span id="mt-vol">—</span></div>
+        <div class="m"><span>頂点 / 面</span><span id="mt-n">—</span></div>
+      </div>
+      <div class="hint">球は半径 R が <code>dR/dt=−2/R</code> に従い <code>T=R₀²/4=A₀/16π</code> で1点に崩壊、表面積は一定速度 <code>−16π</code> で減少します。<b>ダンベル形は3次元では細いくびれがピンチ</b>し特異点を生じます (PDF 図1.1.6)。</div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+//==================================================================
+// 平均曲率流（3次元 閉曲面） — Cotangent ラプラシアンによる半陰的スキーム
+//   ∂F/∂t = ΔF (= 平均曲率ベクトル).  弱形式 FEM:
+//   (M + Δt L) x^{n+1} = M x^n,   L:cotan 剛性, M:重心質量(対角)
+//   大規模疎対称正定値系を 共役勾配法(CG, 対角前処理) で求解
+//==================================================================
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+let S = {
+  // メッシュ（位置は型付き配列, トポロジは固定）
+  px:null, py:null, pz:null, nv:0,
+  faces:null, nf:0,                 // Int32 (3*nf)
+  // 事前計算した接続情報
+  faceData:null,                    // [{i,j,k,eJK,eIK,eIJ}]
+  nbr:null,                         // 頂点ごと [{nb,e}]
+  edgeKeyCount:0,
+  // 状態
+  time:0, running:false, extinct:false,
+  dt:0.0006, sub:3, spf:2,
+  showCurv:true, wire:false, spin:false,
+  initialArea:0, Ttheory:0,
+  isSphere:false,
+  prevArea:null, prevTime:null,
+  // カメラ
+  cam:{ az:0.6, el:0.35, dist:5.0, focal:0 },
+  // 一時バッファ
+  vnx:null, vny:null, vnz:null, hsign:null, mass:null, cw:null, diag:null,
+};
+
+//---------------------------- ベクトル小物 ----------------------------
+function sub3(ax,ay,az,bx,by,bz){ return [ax-bx,ay-by,az-bz]; }
+function cross3(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function dot3(a,b){ return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+function norm3(a){ return Math.hypot(a[0],a[1],a[2]); }
+
+//---------------------------- ビュー ----------------------------
+function resize(){
+  const r = cv.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio||1;
+  cv.width = Math.floor(r.width*dpr); cv.height = Math.floor(r.height*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  S.cam.focal = Math.min(r.width,r.height)*0.62;
+  draw();
+}
+// モデル回転 (Y軸az → X軸el)
+function rotate(x,y,z){
+  const ca=Math.cos(S.cam.az), sa=Math.sin(S.cam.az);
+  const ce=Math.cos(S.cam.el), se=Math.sin(S.cam.el);
+  const x1 = x*ca + z*sa;
+  const z1 = -x*sa + z*ca;
+  const y1 = y;
+  const y2 = y1*ce - z1*se;
+  const z2 = y1*se + z1*ce;
+  return [x1, y2, z2];
+}
+
+//---------------------------- メッシュ生成 ----------------------------
+function buildIcosphere(level){
+  const t=(1+Math.sqrt(5))/2;
+  let verts=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],
+             [t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(v=>{const l=Math.hypot(v[0],v[1],v[2]);return[v[0]/l,v[1]/l,v[2]/l];});
+  let faces=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],
+             [3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  for(let s=0;s<level;s++){
+    const mid=new Map(); const nf=[];
+    const getMid=(a,b)=>{
+      const key=a<b?a+'_'+b:b+'_'+a;
+      if(mid.has(key)) return mid.get(key);
+      const va=verts[a],vb=verts[b];
+      let m=[(va[0]+vb[0])/2,(va[1]+vb[1])/2,(va[2]+vb[2])/2];
+      const l=Math.hypot(m[0],m[1],m[2]); m=[m[0]/l,m[1]/l,m[2]/l];
+      const idx=verts.length; verts.push(m); mid.set(key,idx); return idx;
+    };
+    for(const f of faces){
+      const a=getMid(f[0],f[1]), b=getMid(f[1],f[2]), c=getMid(f[2],f[0]);
+      nf.push([f[0],a,c],[f[1],b,a],[f[2],c,b],[a,b,c]);
+    }
+    faces=nf;
+  }
+  return {verts, faces};
+}
+
+function deformIcosphere(level, fn){
+  const ic=buildIcosphere(level);
+  const verts=ic.verts.map(v=>fn(v[0],v[1],v[2]));
+  return {verts, faces:ic.faces};
+}
+
+function buildTorus(R,r,nu,nv){
+  const verts=[], faces=[];
+  for(let i=0;i<nu;i++){
+    const u=2*Math.PI*i/nu, cu=Math.cos(u), su=Math.sin(u);
+    for(let j=0;j<nv;j++){
+      const v=2*Math.PI*j/nv, cv2=Math.cos(v), sv=Math.sin(v);
+      verts.push([(R+r*cv2)*cu, r*sv, (R+r*cv2)*su]);
+    }
+  }
+  const id=(i,j)=>((i%nu)*nv + (j%nv));
+  for(let i=0;i<nu;i++) for(let j=0;j<nv;j++){
+    const a=id(i,j), b=id(i+1,j), c=id(i+1,j+1), d=id(i,j+1);
+    faces.push([a,b,c],[a,c,d]);
+  }
+  return {verts, faces};
+}
+
+const PRESETS = {
+  sphere:    () => ({ mesh: deformIcosphere(S.sub,(x,y,z)=>[1.3*x,1.3*y,1.3*z]), sphere:true }),
+  ellipsoid: () => ({ mesh: deformIcosphere(S.sub,(x,y,z)=>[1.9*x,1.0*y,1.0*z]), sphere:false }),
+  dumbbell:  () => ({ mesh: deformIcosphere(S.sub,(x,y,z)=>{
+                   // x方向に伸ばし、中央(x≈0)のyz半径を細める → くびれ
+                   const neck=0.22, s=neck+(1-neck)*x*x;
+                   return [1.8*x, 1.25*s*y, 1.25*s*z];
+                 }), sphere:false }),
+  torus:     () => ({ mesh: buildTorus(1.2,0.45,48,24), sphere:false }),
+  bumpy:     () => ({ mesh: deformIcosphere(S.sub,(x,y,z)=>{
+                   const r=1.0+0.20*Math.sin(4*Math.atan2(y,x))*Math.cos(3*Math.asin(Math.max(-1,Math.min(1,z))));
+                   return [1.35*r*x,1.35*r*y,1.35*r*z];
+                 }), sphere:false }),
+  cube:      () => ({ mesh: deformIcosphere(S.sub,(x,y,z)=>{
+                   // 球→丸み立方体（superellipsoid 風）
+                   const p=v=>Math.sign(v)*Math.pow(Math.abs(v),0.55);
+                   return [1.35*p(x),1.35*p(y),1.35*p(z)];
+                 }), sphere:false }),
+};
+
+//---------------------------- 接続情報の事前計算 ----------------------------
+function setupTopology(mesh){
+  const nv=mesh.verts.length, faces=mesh.faces, nf=faces.length;
+  S.nv=nv; S.nf=nf;
+  S.px=new Float64Array(nv); S.py=new Float64Array(nv); S.pz=new Float64Array(nv);
+  for(let i=0;i<nv;i++){ S.px[i]=mesh.verts[i][0]; S.py[i]=mesh.verts[i][1]; S.pz[i]=mesh.verts[i][2]; }
+
+  // 外向きになるよう全体の向きを確認（符号付き体積>0）
+  let vol=signedVolume(faces);
+  S.faces=new Int32Array(nf*3);
+  for(let f=0;f<nf;f++){
+    let a=faces[f][0],b=faces[f][1],c=faces[f][2];
+    if(vol<0){ const tmp=b; b=c; c=tmp; }
+    S.faces[3*f]=a; S.faces[3*f+1]=b; S.faces[3*f+2]=c;
+  }
+
+  // 一意な辺と、面ごとの (対辺edgeId, 頂点)
+  const ekey=new Map(); let ne=0;
+  const edgeId=(a,b)=>{ const k=a<b?a*nv+b:b*nv+a; let id=ekey.get(k); if(id===undefined){id=ne++; ekey.set(k,id);} return id; };
+  S.faceData=new Array(nf);
+  const nbrSet=Array.from({length:nv},()=>new Map()); // nb -> edgeId
+  for(let f=0;f<nf;f++){
+    const i=S.faces[3*f], j=S.faces[3*f+1], k=S.faces[3*f+2];
+    const eJK=edgeId(j,k), eIK=edgeId(i,k), eIJ=edgeId(i,j);
+    S.faceData[f]={i,j,k,eJK,eIK,eIJ};
+    nbrSet[i].set(j,eIJ); nbrSet[i].set(k,eIK);
+    nbrSet[j].set(i,eIJ); nbrSet[j].set(k,eJK);
+    nbrSet[k].set(i,eIK); nbrSet[k].set(j,eJK);
+  }
+  S.edgeKeyCount=ne;
+  S.nbr=nbrSet.map(m=>{ const arr=[]; for(const [nb,e] of m) arr.push({nb,e}); return arr; });
+
+  S.cw=new Float64Array(ne);
+  S.mass=new Float64Array(nv);
+  S.diag=new Float64Array(nv);
+  S.vnx=new Float64Array(nv); S.vny=new Float64Array(nv); S.vnz=new Float64Array(nv);
+  S.hsign=new Float64Array(nv);
+}
+
+function signedVolume(faces){
+  let v=0;
+  for(const f of faces){
+    const a=f[0],b=f[1],c=f[2];
+    v += (S.px[a]*(S.py[b]*S.pz[c]-S.pz[b]*S.py[c])
+        - S.py[a]*(S.px[b]*S.pz[c]-S.pz[b]*S.px[c])
+        + S.pz[a]*(S.px[b]*S.py[c]-S.py[b]*S.px[c]));
+  }
+  return v/6;
+}
+function volumeNow(){
+  let v=0; const F=S.faces;
+  for(let f=0;f<S.nf;f++){
+    const a=F[3*f],b=F[3*f+1],c=F[3*f+2];
+    v += (S.px[a]*(S.py[b]*S.pz[c]-S.pz[b]*S.py[c])
+        - S.py[a]*(S.px[b]*S.pz[c]-S.pz[b]*S.px[c])
+        + S.pz[a]*(S.px[b]*S.py[c]-S.py[b]*S.px[c]));
+  }
+  return Math.abs(v/6);
+}
+
+//---------------------------- 行列組立（cotan重み・質量・曲率） ----------------------------
+function assemble(){
+  const cw=S.cw, mass=S.mass, F=S.faces, fd=S.faceData;
+  cw.fill(0); mass.fill(0);
+  S.vnx.fill(0); S.vny.fill(0); S.vnz.fill(0);
+  let minArea=Infinity;
+  for(let f=0;f<S.nf;f++){
+    const i=F[3*f], j=F[3*f+1], k=F[3*f+2];
+    const e1=sub3(S.px[j],S.py[j],S.pz[j], S.px[i],S.py[i],S.pz[i]); // i->j
+    const e2=sub3(S.px[k],S.py[k],S.pz[k], S.px[i],S.py[i],S.pz[i]); // i->k
+    const cr=cross3(e1,e2); const twoA=norm3(cr); const area=0.5*twoA;
+    if(area<minArea) minArea=area;
+    if(twoA<1e-14) continue;
+    // 面法線（外向き想定）を頂点法線に積算
+    S.vnx[i]+=cr[0]; S.vny[i]+=cr[1]; S.vnz[i]+=cr[2];
+    S.vnx[j]+=cr[0]; S.vny[j]+=cr[1]; S.vnz[j]+=cr[2];
+    S.vnx[k]+=cr[0]; S.vny[k]+=cr[1]; S.vnz[k]+=cr[2];
+    // 各頂点角の cot = (両辺の内積)/(2*面積)
+    const ei_j=e1, ei_k=e2;                                   // 頂点i
+    const ej_i=[-e1[0],-e1[1],-e1[2]];
+    const ej_k=sub3(S.px[k],S.py[k],S.pz[k], S.px[j],S.py[j],S.pz[j]);
+    const ek_i=[-e2[0],-e2[1],-e2[2]];
+    const ek_j=[-ej_k[0],-ej_k[1],-ej_k[2]];
+    const cotI=dot3(ei_j,ei_k)/twoA;
+    const cotJ=dot3(ej_i,ej_k)/twoA;
+    const cotK=dot3(ek_i,ek_j)/twoA;
+    const d=fd[f];
+    cw[d.eJK]+=0.5*cotI;  // 対辺(j,k) ← 頂点iの角
+    cw[d.eIK]+=0.5*cotJ;  // 対辺(i,k) ← 頂点jの角
+    cw[d.eIJ]+=0.5*cotK;  // 対辺(i,j) ← 頂点kの角
+    const a3=area/3; mass[i]+=a3; mass[j]+=a3; mass[k]+=a3;
+  }
+  // 対角と頂点法線正規化
+  for(let i=0;i<S.nv;i++){
+    let s=0; const nb=S.nbr[i];
+    for(let q=0;q<nb.length;q++) s+=cw[nb[q].e];
+    S.diag[i]=mass[i]+S.dt*s;
+    const ln=Math.hypot(S.vnx[i],S.vny[i],S.vnz[i])||1;
+    S.vnx[i]/=ln; S.vny[i]/=ln; S.vnz[i]/=ln;
+  }
+  return minArea;
+}
+
+// 平均曲率（符号付き）: Hvec = M^{-1} Σ cw(x_j - x_i),  signedH = Hvec·(-N)
+function computeMeanCurvature(){
+  const cw=S.cw, mass=S.mass;
+  for(let i=0;i<S.nv;i++){
+    let hx=0,hy=0,hz=0; const nb=S.nbr[i];
+    for(let q=0;q<nb.length;q++){ const j=nb[q].nb, w=cw[nb[q].e];
+      hx+=w*(S.px[j]-S.px[i]); hy+=w*(S.py[j]-S.py[i]); hz+=w*(S.pz[j]-S.pz[i]); }
+    const m=mass[i]||1e-12; hx/=m; hy/=m; hz/=m;
+    // 内向き Hvec を外向き法線に投影し符号反転 → 凸で正
+    S.hsign[i] = -(hx*S.vnx[i]+hy*S.vny[i]+hz*S.vnz[i]);
+  }
+}
+
+//---------------------------- CG ソルバ ----------------------------
+function matvec(x, out){
+  const cw=S.cw, mass=S.mass, dt=S.dt;
+  for(let i=0;i<S.nv;i++){
+    let s=mass[i]*x[i]; const nb=S.nbr[i], xi=x[i];
+    for(let q=0;q<nb.length;q++){ s+=dt*cw[nb[q].e]*(xi-x[nb[q].nb]); }
+    out[i]=s;
+  }
+}
+function cgSolve(b, x){            // A x = b （x は初期値兼出力）
+  const n=S.nv, r=new Float64Array(n), z=new Float64Array(n), p=new Float64Array(n), Ap=new Float64Array(n);
+  matvec(x, Ap);
+  for(let i=0;i<n;i++){ r[i]=b[i]-Ap[i]; z[i]=r[i]/S.diag[i]; p[i]=z[i]; }
+  let rz=0; for(let i=0;i<n;i++) rz+=r[i]*z[i];
+  let bn=0; for(let i=0;i<n;i++) bn+=b[i]*b[i]; bn=Math.sqrt(bn)||1;
+  for(let it=0;it<400;it++){
+    matvec(p, Ap);
+    let pAp=0; for(let i=0;i<n;i++) pAp+=p[i]*Ap[i];
+    const alpha=rz/(pAp||1e-30);
+    let rn=0;
+    for(let i=0;i<n;i++){ x[i]+=alpha*p[i]; r[i]-=alpha*Ap[i]; rn+=r[i]*r[i]; }
+    if(Math.sqrt(rn)/bn<1e-7) break;
+    for(let i=0;i<n;i++) z[i]=r[i]/S.diag[i];
+    let rz2=0; for(let i=0;i<n;i++) rz2+=r[i]*z[i];
+    const beta=rz2/(rz||1e-30);
+    for(let i=0;i<n;i++) p[i]=z[i]+beta*p[i];
+    rz=rz2;
+  }
+}
+
+//---------------------------- 1ステップ ----------------------------
+function step(){
+  if(S.extinct) return;
+  const minArea=assemble();
+  const V=volumeNow();
+  if(minArea<1e-7){ markSingular('ネックピンチ特異点が発生しました'); return; }
+  if(V<S.initialVol*0.0015){ markSingular('1点へ崩壊しました'); return; }
+
+  const bx=new Float64Array(S.nv), by=new Float64Array(S.nv), bz=new Float64Array(S.nv);
+  for(let i=0;i<S.nv;i++){ bx[i]=S.mass[i]*S.px[i]; by[i]=S.mass[i]*S.py[i]; bz[i]=S.mass[i]*S.pz[i]; }
+  // 現在位置を初期値に warm start
+  const nx=S.px.slice(), ny=S.py.slice(), nz=S.pz.slice();
+  cgSolve(bx,nx); cgSolve(by,ny); cgSolve(bz,nz);
+  for(let i=0;i<S.nv;i++){
+    if(!isFinite(nx[i])||!isFinite(ny[i])||!isFinite(nz[i])){ markSingular('特異点が発生しました'); return; }
+    S.px[i]=nx[i]; S.py[i]=ny[i]; S.pz[i]=nz[i];
+  }
+  S.time+=S.dt;
+}
+
+function markSingular(msg){
+  S.extinct=true; S.running=false;
+  const pb=document.getElementById('play'); pb.textContent='▶ 再生'; pb.classList.remove('active');
+  const ban=document.getElementById('banner');
+  ban.textContent=msg+' (t ≈ '+S.time.toFixed(3)+')';
+  ban.style.display='block';
+}
+
+//---------------------------- 計測 ----------------------------
+function surfaceArea(){
+  let A=0; const F=S.faces;
+  for(let f=0;f<S.nf;f++){
+    const i=F[3*f],j=F[3*f+1],k=F[3*f+2];
+    const e1=sub3(S.px[j],S.py[j],S.pz[j],S.px[i],S.py[i],S.pz[i]);
+    const e2=sub3(S.px[k],S.py[k],S.pz[k],S.px[i],S.py[i],S.pz[i]);
+    A+=0.5*norm3(cross3(e1,e2));
+  }
+  return A;
+}
+function updateMetrics(){
+  const A=surfaceArea(), V=volumeNow();
+  document.getElementById('mt-t').textContent=S.time.toFixed(4);
+  document.getElementById('st-t').textContent=S.time.toFixed(3);
+  document.getElementById('mt-area').textContent=A.toFixed(3);
+  document.getElementById('mt-vol').textContent=V.toFixed(3);
+  document.getElementById('mt-n').textContent=S.nv+' / '+S.nf;
+  if(S.prevArea!==null && S.time>S.prevTime){
+    document.getElementById('mt-dadt').textContent=((A-S.prevArea)/(S.time-S.prevTime)).toFixed(2);
+  }
+  S.prevArea=A; S.prevTime=S.time;
+}
+
+//---------------------------- 色 ----------------------------
+function curvColor(h,hmax,shade){
+  const t=Math.max(-1,Math.min(1,hmax>1e-9?h/hmax:0));
+  let r,g,b;
+  if(t>=0){ r=229+(239-229)*t; g=231-(231-68)*t; b=235-(235-68)*t; }
+  else    { const a=-t; r=229-(229-59)*a; g=231-(231-130)*a; b=235+(246-235)*a; }
+  return `rgb(${(r*shade)|0},${(g*shade)|0},${(b*shade)|0})`;
+}
+
+//---------------------------- 描画 ----------------------------
+function draw(){
+  const r=cv.parentElement.getBoundingClientRect();
+  ctx.clearRect(0,0,r.width,r.height);
+  if(S.nv===0) return;
+  const cx=r.width/2, cy=r.height/2, f=S.cam.focal, d=S.cam.dist;
+
+  // 全頂点を回転＆投影
+  const RX=new Float64Array(S.nv), RY=new Float64Array(S.nv), RZ=new Float64Array(S.nv);
+  const SX=new Float64Array(S.nv), SY=new Float64Array(S.nv);
+  for(let i=0;i<S.nv;i++){
+    const rp=rotate(S.px[i],S.py[i],S.pz[i]);
+    RX[i]=rp[0]; RY[i]=rp[1]; RZ[i]=rp[2];
+    const depth=d-rp[2];
+    SX[i]=cx+f*rp[0]/depth; SY[i]=cy-f*rp[1]/depth;
+  }
+  // 曲率の正規化スケール
+  let hmax=1e-9;
+  if(S.showCurv){ for(let i=0;i<S.nv;i++){ const a=Math.abs(S.hsign[i]); if(a>hmax)hmax=a; } }
+
+  // 面を奥行き順（painter）
+  const F=S.faces, order=new Array(S.nf);
+  const fz=new Float64Array(S.nf);
+  for(let q=0;q<S.nf;q++){ const a=F[3*q],b=F[3*q+1],c=F[3*q+2]; fz[q]=(RZ[a]+RZ[b]+RZ[c])/3; order[q]=q; }
+  order.sort((p,q)=>fz[p]-fz[q]);  // 奥(小さいz)から先に描く
+
+  const L=[0.35,0.45,0.82];  // 光源（カメラ空間）
+  const ll=Math.hypot(L[0],L[1],L[2]); L[0]/=ll;L[1]/=ll;L[2]/=ll;
+
+  for(let o=0;o<S.nf;o++){
+    const q=order[o]; const a=F[3*q],b=F[3*q+1],c=F[3*q+2];
+    // 回転後の面法線
+    const ux=RX[b]-RX[a], uy=RY[b]-RY[a], uz=RZ[b]-RZ[a];
+    const vx=RX[c]-RX[a], vy=RY[c]-RY[a], vz=RZ[c]-RZ[a];
+    let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+    const nl=Math.hypot(nx,ny,nz)||1; nx/=nl;ny/=nl;nz/=nl;
+    if(nz<=0 && !S.wire) continue; // 裏面カリング(法線が手前向き=表)
+    let lam=nx*L[0]+ny*L[1]+nz*L[2]; lam=Math.max(0,lam);
+    const shade=0.32+0.68*lam;
+    if(S.wire){
+      ctx.beginPath(); ctx.moveTo(SX[a],SY[a]); ctx.lineTo(SX[b],SY[b]); ctx.lineTo(SX[c],SY[c]); ctx.closePath();
+      ctx.strokeStyle='rgba(120,170,230,0.45)'; ctx.lineWidth=0.6; ctx.stroke();
+      continue;
+    }
+    let fill;
+    if(S.showCurv){ const h=(S.hsign[a]+S.hsign[b]+S.hsign[c])/3; fill=curvColor(h,hmax,shade); }
+    else { fill=`rgb(${(120*shade)|0},${(165*shade)|0},${(220*shade)|0})`; }
+    ctx.beginPath(); ctx.moveTo(SX[a],SY[a]); ctx.lineTo(SX[b],SY[b]); ctx.lineTo(SX[c],SY[c]); ctx.closePath();
+    ctx.fillStyle=fill; ctx.fill();
+    ctx.strokeStyle=fill; ctx.lineWidth=0.5; ctx.stroke(); // 隙間防止
+  }
+}
+
+//---------------------------- ロード ----------------------------
+function loadPreset(name){
+  currentPreset=name;
+  const r=PRESETS[name]();
+  setupTopology(r.mesh);
+  S.isSphere=r.sphere;
+  S.time=0; S.extinct=false; S.prevArea=null; S.prevTime=null;
+  assemble(); computeMeanCurvature();
+  S.initialArea=surfaceArea(); S.initialVol=volumeNow();
+  S.Ttheory=S.initialArea/(16*Math.PI);
+  document.getElementById('banner').style.display='none';
+  document.getElementById('st-T').textContent=S.Ttheory.toFixed(3);
+  document.getElementById('mt-dadt').textContent='—';
+  draw(); updateMetrics();
+}
+
+//---------------------------- ループ ----------------------------
+function frame(){
+  if(S.spin && !S.running) S.cam.az+=0.004;
+  if(S.running && !S.extinct){
+    for(let s=0;s<S.spf;s++){ step(); if(S.extinct) break; }
+    computeMeanCurvature();
+    updateMetrics();
+    if(S.spin) S.cam.az+=0.004;
+  }
+  draw();
+  requestAnimationFrame(frame);
+}
+
+//---------------------------- マウス操作 ----------------------------
+let dragging=false, lastX=0, lastY=0;
+cv.addEventListener('pointerdown',e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove',e=>{
+  if(!dragging) return;
+  S.cam.az += (e.clientX-lastX)*0.008;
+  S.cam.el += (e.clientY-lastY)*0.008;
+  S.cam.el = Math.max(-1.45,Math.min(1.45,S.cam.el));
+  lastX=e.clientX; lastY=e.clientY;
+  draw();
+});
+cv.addEventListener('pointerup',()=>{ dragging=false; });
+cv.addEventListener('wheel',e=>{ e.preventDefault(); S.cam.dist*=Math.exp(e.deltaY*0.0012); S.cam.dist=Math.max(2.6,Math.min(12,S.cam.dist)); draw(); },{passive:false});
+
+//---------------------------- UI ----------------------------
+let currentPreset='dumbbell';
+function bindUI(){
+  const playBtn=document.getElementById('play');
+  playBtn.addEventListener('click',()=>{ if(S.extinct) return; S.running=!S.running;
+    playBtn.textContent=S.running?'⏸ 一時停止':'▶ 再生'; playBtn.classList.toggle('active',S.running); });
+  document.getElementById('stepBtn').addEventListener('click',()=>{ if(S.extinct) return;
+    for(let s=0;s<S.spf;s++){ step(); if(S.extinct) break; } computeMeanCurvature(); updateMetrics(); draw(); });
+  document.getElementById('reset').addEventListener('click',()=>{ S.running=false;
+    playBtn.textContent='▶ 再生'; playBtn.classList.remove('active'); loadPreset(currentPreset); });
+  document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click',()=>{
+    S.running=false; playBtn.textContent='▶ 再生'; playBtn.classList.remove('active'); loadPreset(b.dataset.preset); }));
+
+  const dt=document.getElementById('dt');
+  dt.addEventListener('input',()=>{ S.dt=parseFloat(dt.value); document.getElementById('dt-v').textContent=S.dt.toFixed(4); });
+  const sub=document.getElementById('sub');
+  sub.addEventListener('input',()=>{ document.getElementById('sub-v').textContent=sub.value; });
+  sub.addEventListener('change',()=>{ S.sub=parseInt(sub.value); S.running=false;
+    playBtn.textContent='▶ 再生'; playBtn.classList.remove('active'); loadPreset(currentPreset); });
+  const spf=document.getElementById('spf');
+  spf.addEventListener('input',()=>{ S.spf=parseInt(spf.value); document.getElementById('spf-v').textContent=spf.value+' 步'; });
+
+  document.getElementById('opt-curv').addEventListener('change',e=>{ S.showCurv=e.target.checked; draw(); });
+  document.getElementById('opt-wire').addEventListener('change',e=>{ S.wire=e.target.checked; draw(); });
+  document.getElementById('opt-spin').addEventListener('change',e=>{ S.spin=e.target.checked; });
+  window.addEventListener('resize',resize);
+}
+
+bindUI(); resize(); loadPreset(currentPreset); requestAnimationFrame(frame);
+</script>
+</body>
+</html>

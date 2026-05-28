@@ -112,6 +112,7 @@
       <label class="check"><input type="checkbox" id="opt-curv" checked> 平均曲率を色で表示</label>
       <label class="check"><input type="checkbox" id="opt-wire"> ワイヤーフレーム</label>
       <label class="check"><input type="checkbox" id="opt-spin"> 自動回転</label>
+      <label class="check"><input type="checkbox" id="opt-hvec"> 平均曲率ベクトル H を表示 (黄)</label>
       <div class="legend"><span>負(鞍)</span><div class="bar"></div><span>正(凸)</span></div>
     </div>
 
@@ -151,14 +152,15 @@ let S = {
   // 状態
   time:0, running:false, extinct:false,
   dt:0.0006, sub:3, spf:2,
-  showCurv:true, wire:false, spin:false,
-  initialArea:0, Ttheory:0,
+  showCurv:true, wire:false, spin:false, showHvec:false,
+  initialArea:0, Ttheory:0, initMaxE:1,
   isSphere:false,
   prevArea:null, prevTime:null,
   // カメラ
   cam:{ az:0.6, el:0.35, dist:5.0, focal:0 },
   // 一時バッファ
   vnx:null, vny:null, vnz:null, hsign:null, mass:null, cw:null, diag:null,
+  vHx:null, vHy:null, vHz:null,   // 平均曲率ベクトル（=流れの速度）
 };
 
 //---------------------------- ベクトル小物 ----------------------------
@@ -293,6 +295,7 @@ function setupTopology(mesh){
   S.mass=new Float64Array(nv);
   S.diag=new Float64Array(nv);
   S.vnx=new Float64Array(nv); S.vny=new Float64Array(nv); S.vnz=new Float64Array(nv);
+  S.vHx=new Float64Array(nv); S.vHy=new Float64Array(nv); S.vHz=new Float64Array(nv);
   S.hsign=new Float64Array(nv);
 }
 
@@ -368,6 +371,7 @@ function computeMeanCurvature(){
     for(let q=0;q<nb.length;q++){ const j=nb[q].nb, w=cw[nb[q].e];
       hx+=w*(S.px[j]-S.px[i]); hy+=w*(S.py[j]-S.py[i]); hz+=w*(S.pz[j]-S.pz[i]); }
     const m=mass[i]||1e-12; hx/=m; hy/=m; hz/=m;
+    S.vHx[i]=hx; S.vHy[i]=hy; S.vHz[i]=hz;   // 平均曲率ベクトル（=速度，凸で内向き）
     // 内向き Hvec を外向き法線に投影し符号反転 → 凸で正
     S.hsign[i] = -(hx*S.vnx[i]+hy*S.vny[i]+hz*S.vnz[i]);
   }
@@ -533,6 +537,31 @@ function draw(){
     ctx.fillStyle=fill; ctx.fill();
     ctx.strokeStyle=fill; ctx.lineWidth=0.5; ctx.stroke(); // 隙間防止
   }
+
+  // 平均曲率ベクトル H（= 流れの速度 ΔF，凸では内向き）の矢印
+  if(S.showHvec){
+    let maxH=1e-9; for(let i=0;i<S.nv;i++){ const a=Math.hypot(S.vHx[i],S.vHy[i],S.vHz[i]); if(a>maxH)maxH=a; }
+    const gain=(0.30*(S.initMaxE||2))/maxH;          // 最大矢印 ≈ メッシュ寸法の3割
+    const stepi=Math.max(1, Math.round(S.nv/70));    // 間引き（約70本）
+    ctx.strokeStyle='#ffd24a'; ctx.fillStyle='#ffd24a'; ctx.lineWidth=1.3;
+    for(let i=0;i<S.nv;i+=stepi){
+      const rn=rotate(S.vnx[i],S.vny[i],S.vnz[i]);   // 前面の頂点だけ（回転後の法線が手前向き）
+      if(rn[2]<=0.02) continue;
+      const tp=rotate(S.px[i]+S.vHx[i]*gain, S.py[i]+S.vHy[i]*gain, S.pz[i]+S.vHz[i]*gain);
+      const depth=d-tp[2];
+      drawArrow2(SX[i], SY[i], cx+f*tp[0]/depth, cy-f*tp[1]/depth);
+    }
+  }
+}
+function drawArrow2(x1,y1,x2,y2){
+  const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  if(len<2) return;
+  const ux=dx/len,uy=dy/len,ah=5;
+  ctx.beginPath(); ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-ah*ux-ah*0.5*uy, y2-ah*uy+ah*0.5*ux);
+  ctx.lineTo(x2-ah*ux+ah*0.5*uy, y2-ah*uy-ah*0.5*ux);
+  ctx.closePath(); ctx.fill();
 }
 
 //---------------------------- ロード ----------------------------
@@ -604,6 +633,7 @@ function bindUI(){
   document.getElementById('opt-curv').addEventListener('change',e=>{ S.showCurv=e.target.checked; draw(); });
   document.getElementById('opt-wire').addEventListener('change',e=>{ S.wire=e.target.checked; draw(); });
   document.getElementById('opt-spin').addEventListener('change',e=>{ S.spin=e.target.checked; });
+  document.getElementById('opt-hvec').addEventListener('change',e=>{ S.showHvec=e.target.checked; draw(); });
   window.addEventListener('resize',resize);
 }
 

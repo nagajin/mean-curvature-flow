@@ -136,6 +136,7 @@
       <label class="check"><input type="checkbox" id="opt-trail" checked> 残像 (時刻列 {Mₜ}) を残す</label>
       <label class="check"><input type="checkbox" id="opt-fill" checked> 内部を塗る</label>
       <label class="check"><input type="checkbox" id="opt-redist" checked> 弧長で点を再配置 (安定化)</label>
+      <label class="check"><input type="checkbox" id="opt-hvec"> 平均曲率ベクトル H を表示 (黄)</label>
       <div class="legend"><span>低</span><div class="bar"></div><span>曲率 高</span></div>
     </div>
 
@@ -177,6 +178,7 @@ let state = {
   showTrail: true,
   fill: true,
   redist: true,
+  showHvec: false,
   initialArea: 0,
   Ttheory: 0,
   trail: [],
@@ -469,6 +471,22 @@ function draw() {
     }
   }
 
+  // 平均曲率ベクトル H（= 流れの速度，凸では内向き）の矢印
+  if (state.showHvec && pts.length > 3) {
+    const V = curvatureVectors(pts);
+    let maxH = 1e-9;
+    for (const v of V) maxH = Math.max(maxH, Math.hypot(v.x, v.y));
+    const n = pts.length;
+    const gain = 42 / (maxH * state.view.scale);     // 最大矢印が約42px
+    const stepi = Math.max(1, Math.round(n / 56));    // 間引き（約56本）
+    ctx.strokeStyle = '#ffd24a'; ctx.fillStyle = '#ffd24a'; ctx.lineWidth = 1.4;
+    for (let i = 0; i < n; i += stepi) {
+      const p = pts[i];
+      const s1 = w2s(p), s2 = w2s({ x: p.x + V[i].x*gain, y: p.y + V[i].y*gain });
+      drawArrow(s1, s2);
+    }
+  }
+
   // 描画中プレビュー
   if (state.isDrawing && state.drawPts.length > 1) {
     ctx.strokeStyle = '#ffb454'; ctx.lineWidth = 2; ctx.setLineDash([5,4]);
@@ -476,6 +494,29 @@ function draw() {
     for (let i = 1; i < state.drawPts.length; i++) ctx.lineTo(state.drawPts[i].x, state.drawPts[i].y);
     ctx.stroke(); ctx.setLineDash([]);
   }
+}
+// 離散曲率ベクトル（= -M^{-1}Lx，流れの速度）。凸曲線では内向き
+function curvatureVectors(pts) {
+  const n = pts.length, V = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const pm = pts[(i-1+n)%n], p = pts[i], pp = pts[(i+1)%n];
+    const hm = dist(pm, p) || 1e-9, hp = dist(p, pp) || 1e-9;
+    const m = (hm + hp) / 2;
+    V[i] = { x: ((pp.x-p.x)/hp - (p.x-pm.x)/hm) / m,
+             y: ((pp.y-p.y)/hp - (p.y-pm.y)/hm) / m };
+  }
+  return V;
+}
+function drawArrow(s1, s2) {
+  const dx = s2.x-s1.x, dy = s2.y-s1.y, len = Math.hypot(dx, dy);
+  ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.stroke();
+  if (len < 2) return;
+  const ux = dx/len, uy = dy/len, ah = 5.5;
+  ctx.beginPath();
+  ctx.moveTo(s2.x, s2.y);
+  ctx.lineTo(s2.x - ah*ux - ah*0.5*uy, s2.y - ah*uy + ah*0.5*ux);
+  ctx.lineTo(s2.x - ah*ux + ah*0.5*uy, s2.y - ah*uy - ah*0.5*ux);
+  ctx.closePath(); ctx.fill();
 }
 function drawPolyline(pts, color, lw, closed, dashed) {
   if (pts.length < 2) return;
@@ -622,6 +663,7 @@ function bindUI() {
   document.getElementById('opt-trail').addEventListener('change', e => { state.showTrail = e.target.checked; if(!e.target.checked) state.trail=[]; draw(); });
   document.getElementById('opt-fill').addEventListener('change', e => { state.fill = e.target.checked; draw(); });
   document.getElementById('opt-redist').addEventListener('change', e => { state.redist = e.target.checked; });
+  document.getElementById('opt-hvec').addEventListener('change', e => { state.showHvec = e.target.checked; draw(); });
 
   window.addEventListener('resize', resize);
 }

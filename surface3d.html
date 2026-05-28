@@ -113,6 +113,7 @@
       <label class="check"><input type="checkbox" id="opt-wire"> ワイヤーフレーム</label>
       <label class="check"><input type="checkbox" id="opt-spin"> 自動回転</label>
       <label class="check"><input type="checkbox" id="opt-hvec"> 平均曲率ベクトル H を表示 (黄)</label>
+      <label class="check"><input type="checkbox" id="opt-trans"> 物体を半透明にする (矢印の起点を見やすく)</label>
       <div class="legend"><span>負(鞍)</span><div class="bar"></div><span>正(凸)</span></div>
     </div>
 
@@ -152,7 +153,7 @@ let S = {
   // 状態
   time:0, running:false, extinct:false,
   dt:0.0006, sub:3, spf:2,
-  showCurv:true, wire:false, spin:false, showHvec:false,
+  showCurv:true, wire:false, spin:false, showHvec:false, translucent:false,
   initialArea:0, Ttheory:0, initMaxE:1,
   isSphere:false,
   prevArea:null, prevTime:null,
@@ -522,8 +523,8 @@ function draw(){
     const vx=RX[c]-RX[a], vy=RY[c]-RY[a], vz=RZ[c]-RZ[a];
     let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
     const nl=Math.hypot(nx,ny,nz)||1; nx/=nl;ny/=nl;nz/=nl;
-    if(nz<=0 && !S.wire) continue; // 裏面カリング(法線が手前向き=表)
-    let lam=nx*L[0]+ny*L[1]+nz*L[2]; lam=Math.max(0,lam);
+    if(nz<=0 && !S.wire && !S.translucent) continue; // 裏面カリング（半透明時は裏面も描画）
+    let lam=nx*L[0]+ny*L[1]+nz*L[2]; if(S.translucent) lam=Math.abs(lam); lam=Math.max(0,lam);
     const shade=0.32+0.68*lam;
     if(S.wire){
       ctx.beginPath(); ctx.moveTo(SX[a],SY[a]); ctx.lineTo(SX[b],SY[b]); ctx.lineTo(SX[c],SY[c]); ctx.closePath();
@@ -533,10 +534,12 @@ function draw(){
     let fill;
     if(S.showCurv){ const h=(S.hsign[a]+S.hsign[b]+S.hsign[c])/3; fill=curvColor(h,hmax,shade); }
     else { fill=`rgb(${(120*shade)|0},${(165*shade)|0},${(220*shade)|0})`; }
+    ctx.globalAlpha = S.translucent ? 0.38 : 1.0;
     ctx.beginPath(); ctx.moveTo(SX[a],SY[a]); ctx.lineTo(SX[b],SY[b]); ctx.lineTo(SX[c],SY[c]); ctx.closePath();
     ctx.fillStyle=fill; ctx.fill();
     ctx.strokeStyle=fill; ctx.lineWidth=0.5; ctx.stroke(); // 隙間防止
   }
+  ctx.globalAlpha = 1;   // 矢印・以降は不透明で描画
 
   // 平均曲率ベクトル H（= 流れの速度 ΔF，凸では内向き）の矢印
   if(S.showHvec){
@@ -634,6 +637,7 @@ function bindUI(){
   document.getElementById('opt-wire').addEventListener('change',e=>{ S.wire=e.target.checked; draw(); });
   document.getElementById('opt-spin').addEventListener('change',e=>{ S.spin=e.target.checked; });
   document.getElementById('opt-hvec').addEventListener('change',e=>{ S.showHvec=e.target.checked; draw(); });
+  document.getElementById('opt-trans').addEventListener('change',e=>{ S.translucent=e.target.checked; draw(); });
   window.addEventListener('resize',resize);
 }
 

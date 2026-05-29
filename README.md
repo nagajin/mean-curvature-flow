@@ -9,6 +9,10 @@
 - **2次元（曲線短縮流）**: https://nagajin.github.io/mean-curvature-flow/
 - **3次元（曲面）**: https://nagajin.github.io/mean-curvature-flow/surface3d.html
 
+## 関連
+
+- **微分幾何 教材デモ集**（測地線・曲率・Gauss–Bonnet ほか）: https://nagajin.github.io/differential-geometry-demos/
+
 ## 概要
 
 平均曲率流は、部分多様体の1パラメーター族 $\{M_t\}_{t\in[0,T)}$ が各時刻においてその平均曲率ベクトル場 $\mathbf{H}_t$ の方向へ変形していく流れで、はめ込みの族 $\{f_t\}$ を用いて

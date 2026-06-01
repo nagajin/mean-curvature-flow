@@ -112,9 +112,8 @@
       <label class="check"><input type="checkbox" id="opt-curv" checked> 平均曲率を色で表示</label>
       <label class="check"><input type="checkbox" id="opt-wire"> ワイヤーフレーム</label>
       <label class="check"><input type="checkbox" id="opt-spin"> 自動回転</label>
-      <label class="check"><input type="checkbox" id="opt-hvec"> 平均曲率ベクトル H を表示 (黄)</label>
+      <label class="check"><input type="checkbox" id="opt-hvec" checked> 平均曲率ベクトル H を表示 (黄)</label>
       <label class="check"><input type="checkbox" id="opt-trans"> 物体を半透明にする (矢印の起点を見やすく)</label>
-      <label class="check"><input type="checkbox" id="opt-adaptive" checked> 再生速度を形状に応じて自動調整 (複雑→ゆっくり, 終盤→速く)</label>
       <div class="legend"><span>負(鞍)</span><div class="bar"></div><span>正(凸)</span></div>
     </div>
 
@@ -154,8 +153,7 @@ let S = {
   // 状態
   time:0, running:false, extinct:false,
   dt:0.0006, sub:3, spf:2,
-  showCurv:true, wire:false, spin:false, showHvec:false, translucent:false,
-  adaptive:true,    // 形状に応じて Δt を自動調整 (複雑→ゆっくり, 終盤→速く)
+  showCurv:true, wire:false, spin:false, showHvec:true, translucent:false,
   initialArea:0, Ttheory:0, initMaxE:1,
   isSphere:false,
   prevArea:null, prevTime:null,
@@ -413,10 +411,10 @@ function cgSolve(b, x){            // A x = b （x は初期値兼出力）
 //---------------------------- 1ステップ ----------------------------
 function step(){
   if(S.extinct) return;
-  // 適応的時間刻み: 3次元の等周不足 Q₃ = A³/(36π V²) − 1 (球で 0) で複雑形を遅く、
+  // 適応的時間刻み (常時 ON): 3次元の等周不足 Q₃ = A³/(36π V²) − 1 (球で 0) で複雑形を遅く、
   // (A₀/A) で縮んだ形を速く再生する。S.dt を一時的に置き換え、最後に元に戻す。
   const dtBase = S.dt;
-  if (S.adaptive && S.initialArea > 0){
+  if (S.initialArea > 0){
     const Acur = surfaceArea(), Vcur = volumeNow();
     let Q3 = 0;
     if (Vcur > 1e-10){ Q3 = (Acur*Acur*Acur) / (36*Math.PI*Vcur*Vcur) - 1; }
@@ -653,7 +651,6 @@ function bindUI(){
   document.getElementById('opt-spin').addEventListener('change',e=>{ S.spin=e.target.checked; });
   document.getElementById('opt-hvec').addEventListener('change',e=>{ S.showHvec=e.target.checked; draw(); });
   document.getElementById('opt-trans').addEventListener('change',e=>{ S.translucent=e.target.checked; draw(); });
-  document.getElementById('opt-adaptive').addEventListener('change',e=>{ S.adaptive=e.target.checked; });
   window.addEventListener('resize',resize);
 }
 

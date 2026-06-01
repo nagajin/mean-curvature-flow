@@ -426,14 +426,22 @@ function setCurve(pts) {
   state.trailMark = 0;
   state.initialArea = Math.abs(signedArea(pts));
   state.Ttheory = state.initialArea / (2*Math.PI);
-  // 矢印スケール: 初期形状の |H| 分布の 70 パーセンタイルを基準に固定する。
-  // (max を使うと星形の鋭角のような外れ値で全体が小さくなりすぎるため。)
-  // 以後 |H| が増えれば矢印もそのまま伸び、円→点で |H| = 1/R の発散が視覚化される。
+  // 矢印スケール: 初期形状の弧長重み付き平均 |H| (= ∫|κ|ds/L) を基準に固定。
+  // (パーセンタイルだと十字形・角つき四角のように「直線部 |H|≈0, 角だけ巨大」な
+  //  分布で破綻するため、積分(=角の寄与を分散して取り込む)で評価する。)
   const V0 = curvatureVectors(pts);
-  const mags0 = V0.map(v => Math.hypot(v.x, v.y)).sort((a,b)=>a-b);
-  const refH0 = mags0[Math.floor(mags0.length * 0.7)] || 1e-9;
+  let sumH0 = 0, sumM0 = 0;
+  for (let i = 0; i < pts.length; i++){
+    const hm = dist(pts[(i-1+pts.length)%pts.length], pts[i]);
+    const hp = dist(pts[i], pts[(i+1)%pts.length]);
+    const m = (hm + hp) / 2;
+    sumH0 += Math.hypot(V0[i].x, V0[i].y) * m;
+    sumM0 += m;
+  }
+  const refH0 = sumH0 / Math.max(sumM0, 1e-12) || 1e-9;
   const R_eff0 = Math.sqrt(state.initialArea / Math.PI);
   state.hvecScale = (0.25 * R_eff0) / refH0;
+  state.hvecCap = 1.8 * R_eff0;     // 矢印の世界座標上の上限（離散尖点の暴れ防止）
   document.getElementById('banner').style.display = 'none';
   document.getElementById('st-T').textContent = state.Ttheory.toFixed(3);
   draw();
@@ -492,15 +500,20 @@ function draw() {
 
   // 平均曲率ベクトル H（= 流れの速度，凸では内向き）の矢印
   // スケールは初期形状で固定 (hvecScale)。|H| が増えれば矢印もそのまま伸び、|H|=1/R の発散が見える。
+  // 離散尖点の暴れを防ぐため上限 (hvecCap) でクリップ。
   if (state.showHvec && pts.length > 3) {
     const V = curvatureVectors(pts);
     const gain = state.hvecScale || 0.1;
+    const cap  = state.hvecCap   || 3.0;
     const n = pts.length;
-    const stepi = Math.max(1, Math.round(n / 56));    // 間引き（約56本）
+    const stepi = Math.max(1, Math.round(n / 56));
     ctx.strokeStyle = '#ffd24a'; ctx.fillStyle = '#ffd24a'; ctx.lineWidth = 1.4;
     for (let i = 0; i < n; i += stepi) {
       const p = pts[i];
-      const s1 = w2s(p), s2 = w2s({ x: p.x + V[i].x*gain, y: p.y + V[i].y*gain });
+      let vx = V[i].x * gain, vy = V[i].y * gain;
+      const vl = Math.hypot(vx, vy);
+      if (vl > cap){ const k = cap/vl; vx *= k; vy *= k; }
+      const s1 = w2s(p), s2 = w2s({ x: p.x + vx, y: p.y + vy });
       drawArrow(s1, s2);
     }
   }

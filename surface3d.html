@@ -556,14 +556,19 @@ function draw(){
 
   // 平均曲率ベクトル H（= 流れの速度 ΔF，凸では内向き）の矢印
   // スケールは初期形状で固定 (S.hvecScale)。縮小するにつれ |H|=2/R が増え、矢印が劇的に伸びる。
+  // 離散尖点の暴れを防ぐため上限 (hvecCap) でクリップ。
   if(S.showHvec){
     const gain = S.hvecScale || 0.1;
-    const stepi=Math.max(1, Math.round(S.nv/70));    // 間引き（約70本）
+    const cap  = S.hvecCap   || 3.0;
+    const stepi=Math.max(1, Math.round(S.nv/70));
     ctx.strokeStyle='#ffd24a'; ctx.fillStyle='#ffd24a'; ctx.lineWidth=1.3;
     for(let i=0;i<S.nv;i+=stepi){
-      const rn=rotate(S.vnx[i],S.vny[i],S.vnz[i]);   // 前面の頂点だけ（回転後の法線が手前向き）
+      const rn=rotate(S.vnx[i],S.vny[i],S.vnz[i]);
       if(rn[2]<=0.02) continue;
-      const tp=rotate(S.px[i]+S.vHx[i]*gain, S.py[i]+S.vHy[i]*gain, S.pz[i]+S.vHz[i]*gain);
+      let dx = S.vHx[i]*gain, dy = S.vHy[i]*gain, dz = S.vHz[i]*gain;
+      const dl = Math.hypot(dx,dy,dz);
+      if (dl > cap){ const k = cap/dl; dx*=k; dy*=k; dz*=k; }
+      const tp=rotate(S.px[i]+dx, S.py[i]+dy, S.pz[i]+dz);
       const depth=d-tp[2];
       drawArrow2(SX[i], SY[i], cx+f*tp[0]/depth, cy-f*tp[1]/depth);
     }
@@ -591,13 +596,19 @@ function loadPreset(name){
   S.initialArea=surfaceArea(); S.initialVol=volumeNow();
   S.initMaxE=Math.max(...extents());
   S.Ttheory=S.initialArea/(16*Math.PI);
-  // 矢印スケール: 初期形状の |H| 分布の 70 パーセンタイルを基準に固定。
-  // 以後 |H| が増えれば矢印もそのまま伸び、|H|=2/R の発散が視覚化される。
-  { const mags0=[]; for(let i=0;i<S.nv;i++) mags0.push(Math.hypot(S.vHx[i],S.vHy[i],S.vHz[i]));
-    mags0.sort((a,b)=>a-b);
-    const refH0 = mags0[Math.floor(mags0.length * 0.7)] || 1e-9;
+  // 矢印スケール: 初期形状の面積重み付き平均 |H| (= ∫|H|dA / A) を基準に固定。
+  // (鋭い角・尖点の影響を分散して取り込み、凸閉曲面では概ね 2/R に近い値になる。)
+  { let sumH=0, sumM=0;
+    for(let i=0;i<S.nv;i++){
+      const m = S.mass[i] || 0;
+      sumH += Math.hypot(S.vHx[i],S.vHy[i],S.vHz[i]) * m;
+      sumM += m;
+    }
+    const refH0 = sumH/Math.max(sumM,1e-12) || 1e-9;
     const Reff0 = Math.sqrt(S.initialArea/(4*Math.PI));
-    S.hvecScale = (0.30 * Reff0) / refH0; }
+    S.hvecScale = (0.30 * Reff0) / refH0;
+    S.hvecCap   = 1.8 * Reff0;                  // 矢印の上限（離散尖点の暴れ防止）
+  }
   document.getElementById('banner').style.display='none';
   document.getElementById('st-T').textContent=S.Ttheory.toFixed(3);
   document.getElementById('mt-dadt').textContent='—';

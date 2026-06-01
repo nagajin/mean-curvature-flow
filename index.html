@@ -483,12 +483,16 @@ function draw() {
   }
 
   // 平均曲率ベクトル H（= 流れの速度，凸では内向き）の矢印
+  // 矢印長は曲線の等価半径 R_eff = sqrt(A/π) に比例させて、縮小しても見た目の比率を保つ。
   if (state.showHvec && pts.length > 3) {
     const V = curvatureVectors(pts);
     let maxH = 1e-9;
     for (const v of V) maxH = Math.max(maxH, Math.hypot(v.x, v.y));
+    const A_now = Math.abs(signedArea(pts));
+    const R_eff = Math.sqrt(Math.max(A_now, 1e-9) / Math.PI);
+    const arrowWorldMax = 0.32 * R_eff;          // 最大矢印 ≈ 等価半径の 32%
+    const gain = arrowWorldMax / maxH;
     const n = pts.length;
-    const gain = 42 / (maxH * state.view.scale);     // 最大矢印が約42px
     const stepi = Math.max(1, Math.round(n / 56));    // 間引き（約56本）
     ctx.strokeStyle = '#ffd24a'; ctx.fillStyle = '#ffd24a'; ctx.lineWidth = 1.4;
     for (let i = 0; i < n; i += stepi) {

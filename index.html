@@ -426,6 +426,14 @@ function setCurve(pts) {
   state.trailMark = 0;
   state.initialArea = Math.abs(signedArea(pts));
   state.Ttheory = state.initialArea / (2*Math.PI);
+  // 矢印スケール: 初期形状の |H| 分布の 70 パーセンタイルを基準に固定する。
+  // (max を使うと星形の鋭角のような外れ値で全体が小さくなりすぎるため。)
+  // 以後 |H| が増えれば矢印もそのまま伸び、円→点で |H| = 1/R の発散が視覚化される。
+  const V0 = curvatureVectors(pts);
+  const mags0 = V0.map(v => Math.hypot(v.x, v.y)).sort((a,b)=>a-b);
+  const refH0 = mags0[Math.floor(mags0.length * 0.7)] || 1e-9;
+  const R_eff0 = Math.sqrt(state.initialArea / Math.PI);
+  state.hvecScale = (0.25 * R_eff0) / refH0;
   document.getElementById('banner').style.display = 'none';
   document.getElementById('st-T').textContent = state.Ttheory.toFixed(3);
   draw();
@@ -483,15 +491,10 @@ function draw() {
   }
 
   // 平均曲率ベクトル H（= 流れの速度，凸では内向き）の矢印
-  // 矢印長は曲線の等価半径 R_eff = sqrt(A/π) に比例させて、縮小しても見た目の比率を保つ。
+  // スケールは初期形状で固定 (hvecScale)。|H| が増えれば矢印もそのまま伸び、|H|=1/R の発散が見える。
   if (state.showHvec && pts.length > 3) {
     const V = curvatureVectors(pts);
-    let maxH = 1e-9;
-    for (const v of V) maxH = Math.max(maxH, Math.hypot(v.x, v.y));
-    const A_now = Math.abs(signedArea(pts));
-    const R_eff = Math.sqrt(Math.max(A_now, 1e-9) / Math.PI);
-    const arrowWorldMax = 0.32 * R_eff;          // 最大矢印 ≈ 等価半径の 32%
-    const gain = arrowWorldMax / maxH;
+    const gain = state.hvecScale || 0.1;
     const n = pts.length;
     const stepi = Math.max(1, Math.round(n / 56));    // 間引き（約56本）
     ctx.strokeStyle = '#ffd24a'; ctx.fillStyle = '#ffd24a'; ctx.lineWidth = 1.4;

@@ -555,13 +555,9 @@ function draw(){
   ctx.globalAlpha = 1;   // 矢印・以降は不透明で描画
 
   // 平均曲率ベクトル H（= 流れの速度 ΔF，凸では内向き）の矢印
-  // 矢印長は現在の等価半径 (球換算 sqrt(A/4π)) に比例 → 縮小しても比率を保つ
+  // スケールは初期形状で固定 (S.hvecScale)。縮小するにつれ |H|=2/R が増え、矢印が劇的に伸びる。
   if(S.showHvec){
-    let maxH=1e-9; for(let i=0;i<S.nv;i++){ const a=Math.hypot(S.vHx[i],S.vHy[i],S.vHz[i]); if(a>maxH)maxH=a; }
-    const Acur = surfaceArea();
-    const R_eff = Math.sqrt(Math.max(Acur, 1e-9) / (4*Math.PI));
-    const arrowWorldMax = 0.40 * R_eff;             // 最大矢印 ≈ 等価半径の 40%
-    const gain = arrowWorldMax / maxH;
+    const gain = S.hvecScale || 0.1;
     const stepi=Math.max(1, Math.round(S.nv/70));    // 間引き（約70本）
     ctx.strokeStyle='#ffd24a'; ctx.fillStyle='#ffd24a'; ctx.lineWidth=1.3;
     for(let i=0;i<S.nv;i+=stepi){
@@ -595,6 +591,13 @@ function loadPreset(name){
   S.initialArea=surfaceArea(); S.initialVol=volumeNow();
   S.initMaxE=Math.max(...extents());
   S.Ttheory=S.initialArea/(16*Math.PI);
+  // 矢印スケール: 初期形状の |H| 分布の 70 パーセンタイルを基準に固定。
+  // 以後 |H| が増えれば矢印もそのまま伸び、|H|=2/R の発散が視覚化される。
+  { const mags0=[]; for(let i=0;i<S.nv;i++) mags0.push(Math.hypot(S.vHx[i],S.vHy[i],S.vHz[i]));
+    mags0.sort((a,b)=>a-b);
+    const refH0 = mags0[Math.floor(mags0.length * 0.7)] || 1e-9;
+    const Reff0 = Math.sqrt(S.initialArea/(4*Math.PI));
+    S.hvecScale = (0.30 * Reff0) / refH0; }
   document.getElementById('banner').style.display='none';
   document.getElementById('st-T').textContent=S.Ttheory.toFixed(3);
   document.getElementById('mt-dadt').textContent='—';

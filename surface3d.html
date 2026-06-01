@@ -114,6 +114,7 @@
       <label class="check"><input type="checkbox" id="opt-spin"> 自動回転</label>
       <label class="check"><input type="checkbox" id="opt-hvec"> 平均曲率ベクトル H を表示 (黄)</label>
       <label class="check"><input type="checkbox" id="opt-trans"> 物体を半透明にする (矢印の起点を見やすく)</label>
+      <label class="check"><input type="checkbox" id="opt-adaptive" checked> 再生速度を形状に応じて自動調整 (複雑→ゆっくり, 終盤→速く)</label>
       <div class="legend"><span>負(鞍)</span><div class="bar"></div><span>正(凸)</span></div>
     </div>
 
@@ -154,6 +155,7 @@ let S = {
   time:0, running:false, extinct:false,
   dt:0.0006, sub:3, spf:2,
   showCurv:true, wire:false, spin:false, showHvec:false, translucent:false,
+  adaptive:true,    // 形状に応じて Δt を自動調整 (複雑→ゆっくり, 終盤→速く)
   initialArea:0, Ttheory:0, initMaxE:1,
   isSphere:false,
   prevArea:null, prevTime:null,
@@ -411,12 +413,24 @@ function cgSolve(b, x){            // A x = b （x は初期値兼出力）
 //---------------------------- 1ステップ ----------------------------
 function step(){
   if(S.extinct) return;
+  // 適応的時間刻み: 3次元の等周不足 Q₃ = A³/(36π V²) − 1 (球で 0) で複雑形を遅く、
+  // (A₀/A) で縮んだ形を速く再生する。S.dt を一時的に置き換え、最後に元に戻す。
+  const dtBase = S.dt;
+  if (S.adaptive && S.initialArea > 0){
+    const Acur = surfaceArea(), Vcur = volumeNow();
+    let Q3 = 0;
+    if (Vcur > 1e-10){ Q3 = (Acur*Acur*Acur) / (36*Math.PI*Vcur*Vcur) - 1; }
+    const slow  = 1 / (1 + 0.6 * Math.max(0, Q3));
+    const speed = Math.pow(S.initialArea / Math.max(Acur, 1e-10), 0.55);
+    S.dt = dtBase * slow * speed;
+  }
+
   const minArea=assemble();
   const V=volumeNow();
   // 体積が消失 → 限界集合の次元を境界ボックスの広がりで判定（点 / 曲線 など）
-  if(V<S.initialVol*0.0015){ markSingular(classifyCollapse()); return; }
+  if(V<S.initialVol*0.0015){ S.dt = dtBase; markSingular(classifyCollapse()); return; }
   // 体積は残るが局所的に面が潰れた → ネックピンチ
-  if(minArea<1e-7){ markSingular('ネックピンチ特異点が発生しました'); return; }
+  if(minArea<1e-7){ S.dt = dtBase; markSingular('ネックピンチ特異点が発生しました'); return; }
 
   const bx=new Float64Array(S.nv), by=new Float64Array(S.nv), bz=new Float64Array(S.nv);
   for(let i=0;i<S.nv;i++){ bx[i]=S.mass[i]*S.px[i]; by[i]=S.mass[i]*S.py[i]; bz[i]=S.mass[i]*S.pz[i]; }
@@ -424,10 +438,11 @@ function step(){
   const nx=S.px.slice(), ny=S.py.slice(), nz=S.pz.slice();
   cgSolve(bx,nx); cgSolve(by,ny); cgSolve(bz,nz);
   for(let i=0;i<S.nv;i++){
-    if(!isFinite(nx[i])||!isFinite(ny[i])||!isFinite(nz[i])){ markSingular('特異点が発生しました'); return; }
+    if(!isFinite(nx[i])||!isFinite(ny[i])||!isFinite(nz[i])){ S.dt = dtBase; markSingular('特異点が発生しました'); return; }
     S.px[i]=nx[i]; S.py[i]=ny[i]; S.pz[i]=nz[i];
   }
-  S.time+=S.dt;
+  S.time += S.dt;
+  S.dt = dtBase;        // 復元（UI スライダの値を保つ）
 }
 
 // 境界ボックスの3方向の広がり
@@ -638,6 +653,7 @@ function bindUI(){
   document.getElementById('opt-spin').addEventListener('change',e=>{ S.spin=e.target.checked; });
   document.getElementById('opt-hvec').addEventListener('change',e=>{ S.showHvec=e.target.checked; draw(); });
   document.getElementById('opt-trans').addEventListener('change',e=>{ S.translucent=e.target.checked; draw(); });
+  document.getElementById('opt-adaptive').addEventListener('change',e=>{ S.adaptive=e.target.checked; });
   window.addEventListener('resize',resize);
 }
 

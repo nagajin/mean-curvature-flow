@@ -137,6 +137,7 @@
       <label class="check"><input type="checkbox" id="opt-trail" checked> 残像 (時刻列 {Mₜ}) を残す</label>
       <label class="check"><input type="checkbox" id="opt-fill" checked> 内部を塗る</label>
       <label class="check"><input type="checkbox" id="opt-redist" checked> 弧長で点を再配置 (安定化)</label>
+      <label class="check"><input type="checkbox" id="opt-adaptive" checked> 再生速度を形状に応じて自動調整 (複雑→ゆっくり, 終盤→速く)</label>
       <label class="check"><input type="checkbox" id="opt-hvec"> 平均曲率ベクトル H を表示 (黄)</label>
       <div class="legend"><span>低</span><div class="bar"></div><span>曲率 高</span></div>
     </div>
@@ -180,6 +181,7 @@ let state = {
   fill: true,
   redist: true,
   showHvec: false,
+  adaptive: true,        // 形状に応じて Δt を自動調整 (複雑→遅い, 小さい→速い)
   initialArea: 0,
   Ttheory: 0,
   trail: [],
@@ -285,14 +287,24 @@ function step() {
   const pts = state.pts, n = pts.length;
   if (n < 4) return;
   const h = edgeLengths(pts);             // h[i] = |x_{i+1}-x_i|
-  const dt = state.dt;
 
   // 退化チェック
   let minh = Infinity;
   for (let i = 0; i < n; i++) minh = Math.min(minh, h[i]);
   const A = Math.abs(signedArea(pts));
-  if (A < state.initialArea * 0.0018 || totalLength(pts) < 1e-3) {
+  const L = totalLength(pts);
+  if (A < state.initialArea * 0.0018 || L < 1e-3) {
     markExtinct(); return;
+  }
+
+  // 適応的時間刻み: 等周不足 Q = L²/(4πA) − 1 が大きい (=複雑) ほど遅く、
+  // 面積比 (A₀/A) が大きい (=縮んだ) ほど速くする。物理は MCF のまま、再生時間の配分のみ変える。
+  let dt = state.dt;
+  if (state.adaptive && state.initialArea > 0) {
+    const Qdef = (L*L) / (4*Math.PI*Math.max(A, 1e-10)) - 1;     // 円で 0、それ以外で > 0
+    const slow  = 1 / (1 + 0.7 * Math.max(0, Qdef));             // 複雑 → 小さく
+    const speed = Math.pow(state.initialArea / Math.max(A, 1e-10), 0.65); // 縮んだら大きく
+    dt = state.dt * slow * speed;
   }
 
   // 係数: 行 i は M_ii x_i + dt*( (x_i-x_{i-1})/h_{i-1} + (x_i-x_{i+1})/h_i )
@@ -664,6 +676,7 @@ function bindUI() {
   document.getElementById('opt-trail').addEventListener('change', e => { state.showTrail = e.target.checked; if(!e.target.checked) state.trail=[]; draw(); });
   document.getElementById('opt-fill').addEventListener('change', e => { state.fill = e.target.checked; draw(); });
   document.getElementById('opt-redist').addEventListener('change', e => { state.redist = e.target.checked; });
+  document.getElementById('opt-adaptive').addEventListener('change', e => { state.adaptive = e.target.checked; });
   document.getElementById('opt-hvec').addEventListener('change', e => { state.showHvec = e.target.checked; draw(); });
 
   window.addEventListener('resize', resize);

@@ -34,10 +34,10 @@
   button.active { background:var(--accent2); color:#2a1c05; border-color:var(--accent2); font-weight:600; }
   button.wide { flex:1; }
   .preset-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-  label.row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:9px 0; }
+  label.row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:9px 0; min-width:0; }
   label.row span.lab { color:var(--muted); flex:0 0 auto; }
-  label.row span.val { color:var(--text); font-variant-numeric:tabular-nums; min-width:56px; text-align:right; }
-  input[type=range] { flex:1; accent-color:var(--accent); }
+  label.row span.val { color:var(--text); font-variant-numeric:tabular-nums; min-width:60px; text-align:right; flex-shrink:0; }
+  input[type=range] { flex:1 1 0; min-width:0; accent-color:var(--accent); }
   .check { display:flex; align-items:center; gap:8px; margin:8px 0; cursor:pointer; }
   .check input { accent-color:var(--accent); width:15px; height:15px; }
   #metrics { font-variant-numeric:tabular-nums; line-height:1.7; }
@@ -104,7 +104,7 @@
         <span class="val" id="sub-v">3</span></label>
       <label class="row"><span class="lab">1フレーム速度</span>
         <input id="spf" type="range" min="1" max="20" step="1" value="2">
-        <span class="val" id="spf-v">2 步</span></label>
+        <span class="val" id="spf-v">2</span></label>
     </div>
 
     <div class="group">
@@ -644,7 +644,7 @@ function bindUI(){
   sub.addEventListener('change',()=>{ S.sub=parseInt(sub.value); S.running=false;
     playBtn.textContent='▶ 再生'; playBtn.classList.remove('active'); loadPreset(currentPreset); });
   const spf=document.getElementById('spf');
-  spf.addEventListener('input',()=>{ S.spf=parseInt(spf.value); document.getElementById('spf-v').textContent=spf.value+' 步'; });
+  spf.addEventListener('input',()=>{ S.spf=parseInt(spf.value); document.getElementById('spf-v').textContent=spf.value; });
 
   document.getElementById('opt-curv').addEventListener('change',e=>{ S.showCurv=e.target.checked; draw(); });
   document.getElementById('opt-wire').addEventListener('change',e=>{ S.wire=e.target.checked; draw(); });

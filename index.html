@@ -36,6 +36,7 @@
   .group { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
   .group h2 { font-size: 12px; margin: 0 0 10px; color: var(--accent); text-transform: none; letter-spacing: .03em; font-weight: 600; }
   .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn-row button { white-space: nowrap; padding-left: 8px; padding-right: 8px; }
   button {
     background: #233040; color: var(--text); border: 1px solid var(--border);
     border-radius: 8px; padding: 7px 10px; font-size: 12px; cursor: pointer;
@@ -74,6 +75,25 @@
   .legend .bar { height: 10px; flex: 1; border-radius: 4px; background: linear-gradient(90deg,#3b82f6,#e5e7eb,#ef4444); }
   hr.sep { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
   code { background: #0e1116; padding: 1px 5px; border-radius: 4px; color: var(--accent2); font-size: 11px; }
+  .note { font-size: 11.5px; line-height: 1.6; background: #0e1116; border-left: 3px solid var(--accent2); border-radius: 6px; padding: 7px 9px; margin-top: 8px; }
+  .note b { color: var(--accent2); font-weight: 600; }
+  .arrow-key { font-size: 11px; color: var(--muted); margin: -2px 0 0 23px; line-height: 1.5; }
+  .arrow-key i { font-style: normal; font-weight: 600; }
+  #graph { height: 130px; margin-top: 10px; background: #0e1116; border-radius: 6px; cursor: default; }
+  .graph-key { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  #cv.drawing { touch-action: none; }   /* 描画モード中は指でなぞってもスクロールしない */
+  /* 狭い画面（スマホ縦）：上にキャンバス、下に操作パネル（パネルだけスクロール） */
+  @media (max-width: 760px) {
+    #app { flex-direction: column; height: 100vh; height: 100dvh; }
+    #stage { flex: 0 0 52%; }
+    #sidebar { width: auto; flex: 1 1 auto; min-height: 0; border-left: none; border-top: 1px solid var(--border); padding: 12px 12px 32px; }
+    #status { top: 8px; left: 8px; font-size: 11px; padding: 4px 8px; }
+  }
+  @media (pointer: coarse) {
+    button { padding-top: 10px; padding-bottom: 10px; font-size: 13px; }
+    .check input { width: 20px; height: 20px; }
+    input[type=range] { height: 28px; }
+  }
 </style>
 </head>
 <body>
@@ -97,8 +117,11 @@
       <h2>再生コントロール</h2>
       <div class="btn-row">
         <button id="play" class="primary wide">▶ 再生</button>
-        <button id="stepBtn" class="wide">⏭ 1ステップ</button>
+        <button id="stepBtn" class="wide">⏭ コマ送り</button>
         <button id="reset" class="wide">↺ リセット</button>
+      </div>
+      <div class="btn-row" style="margin-top:6px">
+        <button id="saveBtn" class="wide">📷 画像を保存 (PNG)</button>
       </div>
     </div>
 
@@ -114,9 +137,10 @@
         <button data-preset="spiralish">うねり曲線</button>
         <button data-preset="cross">十字形</button>
       </div>
+      <div id="note" class="note"></div>
       <hr class="sep">
       <button id="drawBtn" class="wide">✏ 自分で描く</button>
-      <div class="hint">「自分で描く」を押し、キャンバス上をドラッグして閉曲線を描いてください。離すと自動で滑らかに整えて開始位置に設定します。</div>
+      <div class="hint">「自分で描く」を押し、キャンバス上をドラッグ（スマホは指でなぞる）して閉曲線を描いてください。離すと自動で滑らかに整えて開始位置に設定します。</div>
     </div>
 
     <div class="group">
@@ -139,6 +163,7 @@
       <label class="check"><input type="checkbox" id="opt-fill" checked> 内部を塗る</label>
       <label class="check"><input type="checkbox" id="opt-redist" checked> 弧長で点を再配置 (安定化)</label>
       <label class="check"><input type="checkbox" id="opt-hvec" checked> 平均曲率ベクトル H を表示 (黄)</label>
+      <div class="arrow-key"><i style="color:#ffd24a">黄</i>：長さは |H| に比例 ／ <i style="color:#ff8a3d">橙</i>：長すぎるので途中で切った矢印</div>
       <div class="legend"><span>低</span><div class="bar"></div><span>曲率 高</span></div>
     </div>
 
@@ -149,8 +174,11 @@
         <div class="m"><span>周長 L</span><span id="mt-len">—</span></div>
         <div class="m"><span>囲む面積 A</span><span id="mt-area">—</span></div>
         <div class="m"><span class="key">dA/dt (理論 −2π)</span><span id="mt-dadt" class="key">—</span></div>
+        <div class="m"><span>等周比 L²/4πA (円で 1)</span><span id="mt-iso">—</span></div>
         <div class="m"><span>点数</span><span id="mt-n">—</span></div>
       </div>
+      <canvas id="graph"></canvas>
+      <div class="graph-key"><span style="color:var(--good)">━</span> 面積 A(t)/A₀ &nbsp; <span style="color:var(--accent2)">┅</span> 理論 1 − t/T</div>
       <div class="hint">単純閉曲線では面積が一定速度 <code>dA/dt = −2π ≈ −6.283</code> で減少し、時刻 <code>T = A₀/2π</code> で1点に崩壊します (Gage–Hamilton–Grayson の定理)。非凸曲線もまず凸化してから円形に崩壊します。</div>
     </div>
   </div>
@@ -185,6 +213,8 @@ let state = {
   Ttheory: 0,
   trail: [],
   trailMark: 0,
+  hist: [],              // 面積の時刻歴 [{t, A}]（グラフ用）
+  drawnInit: null,       // 手描き曲線の初期形（リセットで戻すため）。プリセットのときは null
   extinct: false,
   drawing: false,        // 描画モード待機
   drawPts: [],           // 描画中の生ポイント(スクリーン)
@@ -203,6 +233,7 @@ function resize() {
   state.view.cx = r.width / 2;
   state.view.cy = r.height / 2;
   draw();
+  drawGraph();
 }
 function w2s(p) {
   return { x: state.view.cx + p.x * state.view.scale,
@@ -305,6 +336,9 @@ function step() {
     const speed = Math.pow(state.initialArea / Math.max(A, 1e-10), 0.65); // 縮んだら大きく
     dt = state.dt * slow * speed;
   }
+  // 終盤に Δt が曲線の大きさ² (≈ A/π) に比べて大きくなると、半陰的スキームの遅れで
+  // 消滅時刻が理論値 T より 2〜4% 遅れていた。1 ステップでの r² の変化を 4% 以下に抑える。
+  dt = Math.min(dt, 0.02 * A / Math.PI);
 
   // 係数: 行 i は M_ii x_i + dt*( (x_i-x_{i-1})/h_{i-1} + (x_i-x_{i+1})/h_i )
   const a = new Array(n), b = new Array(n), c = new Array(n);
@@ -411,11 +445,29 @@ const PRESETS = {
            },
 };
 
+// プリセットごとの「この例で起きること」（初期曲線の下に表示）
+const NOTES = {
+  circle:    '形を保ったまま縮む。半径は <b>r(t)² = r₀² − 2t</b> に従い、T = r₀²/2 で1点に消える。',
+  ellipse:   '縮みながら丸くなる。等周比 L²/4πA が 1 に近づく（Gage–Hamilton：凸曲線は丸い点に縮む）。',
+  star:      '凹んだ所は曲率が負で<b>外へ</b>、とがった先は内へ動き、<b>まず凸になる</b>（Grayson）。そのあとは丸くなって消える。',
+  flower:    '細かい波ほど曲率が大きく速く動くので、<b>波が真っ先に消える</b>（熱方程式と同じ平滑化）。',
+  peanut:    'くびれは外へ広がって太くなり、<b>ちぎれない</b>。3次元の同じ形の曲面では、くびれがちぎれる（3D ページ）。',
+  square:    '角は曲率が非常に大きいので<b>一瞬で丸まる</b>。直線部分は曲率 0 なので、はじめはほとんど動かない。',
+  spiralish: '凹凸の混ざった曲線。凹みが先に埋まって凸になり、丸くなって消える。',
+  cross:     '内側の角（凹）は外へ、外側の角は内へ動く。腕は縮みながら太くなり、凸になってから丸く消える。',
+  drawn:     '自分で描いた曲線。自己交差がなければ、どんな形でも<b>凸になってから丸い点に縮む</b>（Grayson）。',
+};
+function showNote(key) {
+  document.getElementById('note').innerHTML = '<b>見どころ</b>　' + NOTES[key];
+}
+
 function loadPreset(name) {
   const N = state.N;
   let pts = PRESETS[name](N);
   // 反時計回りに正規化
   if (signedArea(pts) < 0) pts.reverse();
+  state.drawnInit = null;
+  showNote(name);
   setCurve(pts);
 }
 
@@ -425,6 +477,8 @@ function setCurve(pts) {
   state.extinct = false;
   state.trail = [];
   state.trailMark = 0;
+  state.hist = [];
+  document.getElementById('mt-dadt').textContent = '—';
   state.initialArea = Math.abs(signedArea(pts));
   state.Ttheory = state.initialArea / (2*Math.PI);
   // 矢印スケール: 初期形状の弧長重み付き平均 |H| (= ∫|κ|ds/L) を基準に固定。
@@ -442,7 +496,9 @@ function setCurve(pts) {
   const refH0 = sumH0 / Math.max(sumM0, 1e-12) || 1e-9;
   const R_eff0 = Math.sqrt(state.initialArea / Math.PI);
   state.hvecScale = (0.25 * R_eff0) / refH0;
-  state.hvecCap = 1.8 * R_eff0;     // 矢印の世界座標上の上限（離散尖点の暴れ防止）
+  // 矢印の世界座標上の上限。1.8·R_eff だと星形の凹みの矢印（初期で 2.6·R_eff）が
+  // 曲線の外寸を越えて画面外まで伸びたので 0.8·R_eff に下げ、切った矢印は橙で描く。
+  state.hvecCap = 0.8 * R_eff0;
   document.getElementById('banner').style.display = 'none';
   document.getElementById('st-T').textContent = state.Ttheory.toFixed(3);
   draw();
@@ -501,19 +557,21 @@ function draw() {
 
   // 平均曲率ベクトル H（= 流れの速度，凸では内向き）の矢印
   // スケールは初期形状で固定 (hvecScale)。|H| が増えれば矢印もそのまま伸び、|H|=1/R の発散が見える。
-  // 離散尖点の暴れを防ぐため上限 (hvecCap) でクリップ。
+  // 上限 (hvecCap) で切った矢印は橙にして、「本当はもっと長い」ことが分かるようにする。
   if (state.showHvec && pts.length > 3) {
     const V = curvatureVectors(pts);
     const gain = state.hvecScale || 0.1;
     const cap  = state.hvecCap   || 3.0;
     const n = pts.length;
     const stepi = Math.max(1, Math.round(n / 56));
-    ctx.strokeStyle = '#ffd24a'; ctx.fillStyle = '#ffd24a'; ctx.lineWidth = 1.4;
+    ctx.lineWidth = 1.4;
     for (let i = 0; i < n; i += stepi) {
       const p = pts[i];
       let vx = V[i].x * gain, vy = V[i].y * gain;
       const vl = Math.hypot(vx, vy);
-      if (vl > cap){ const k = cap/vl; vx *= k; vy *= k; }
+      const clipped = vl > cap;
+      if (clipped){ const k = cap/vl; vx *= k; vy *= k; }
+      ctx.strokeStyle = ctx.fillStyle = clipped ? '#ff8a3d' : '#ffd24a';
       const s1 = w2s(p), s2 = w2s({ x: p.x + vx, y: p.y + vy });
       drawArrow(s1, s2);
     }
@@ -585,11 +643,88 @@ function updateMetrics() {
   document.getElementById('mt-len').textContent = L.toFixed(4);
   document.getElementById('mt-area').textContent = A.toFixed(4);
   document.getElementById('mt-n').textContent = pts.length;
+  document.getElementById('mt-iso').textContent = A > 1e-12 ? (L*L / (4*Math.PI*A)).toFixed(4) : '—';
   if (prevArea !== null && prevTime !== null && state.time > prevTime) {
     const dadt = (A - prevArea) / (state.time - prevTime);
     document.getElementById('mt-dadt').textContent = dadt.toFixed(3);
   }
   prevArea = A; prevTime = state.time;
+  const h = state.hist;
+  if (!h.length || state.time > h[h.length-1].t) { h.push({ t: state.time, A }); drawGraph(); }
+}
+
+//----------------------------- 面積の時刻グラフ -----------------------------
+// A(t)/A₀ の実測（緑）と理論 1 − t/T（橙の破線、T = A₀/2π）。横軸は [0, 1.04T] に固定。
+const gcv = document.getElementById('graph');
+const gctx = gcv.getContext('2d');
+function drawGraph() {
+  const w = gcv.clientWidth, h = gcv.clientHeight;
+  if (!w || !h) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (gcv.width !== Math.round(w*dpr) || gcv.height !== Math.round(h*dpr)) {
+    gcv.width = Math.round(w*dpr); gcv.height = Math.round(h*dpr);
+  }
+  gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  gctx.clearRect(0, 0, w, h);
+  const T = state.Ttheory, A0 = state.initialArea;
+  if (!(T > 0) || !(A0 > 0)) return;
+  const pl = 24, pr = 10, pt = 10, pb = 18;
+  const tmax = T * 1.04;
+  const X = t => pl + (w-pl-pr) * Math.min(t, tmax) / tmax;
+  const Y = a => pt + (h-pt-pb) * (1 - a);
+  // 軸と目盛り
+  gctx.strokeStyle = 'rgba(255,255,255,0.15)'; gctx.lineWidth = 1;
+  gctx.beginPath(); gctx.moveTo(pl, pt); gctx.lineTo(pl, Y(0)); gctx.lineTo(w-pr, Y(0)); gctx.stroke();
+  gctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  gctx.beginPath(); gctx.moveTo(pl, Y(0.5)); gctx.lineTo(w-pr, Y(0.5)); gctx.stroke();
+  gctx.fillStyle = '#8b97a6'; gctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+  gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
+  gctx.fillText('1', pl-5, Y(1)); gctx.fillText('0', pl-5, Y(0));
+  gctx.textAlign = 'center'; gctx.textBaseline = 'top';
+  gctx.fillText('T', X(T), Y(0)+3);
+  gctx.textAlign = 'left';
+  gctx.fillText('t →', pl+2, Y(0)+3);
+  // 理論直線
+  gctx.strokeStyle = '#ffb454'; gctx.lineWidth = 1.2; gctx.setLineDash([4, 3]);
+  gctx.beginPath(); gctx.moveTo(X(0), Y(1)); gctx.lineTo(X(T), Y(0)); gctx.stroke();
+  gctx.setLineDash([]);
+  // 実測
+  const hs = state.hist;
+  if (hs.length) {
+    gctx.strokeStyle = '#5ad19a'; gctx.lineWidth = 2;
+    gctx.beginPath();
+    hs.forEach((p, i) => { const x = X(p.t), y = Y(p.A / A0); i ? gctx.lineTo(x, y) : gctx.moveTo(x, y); });
+    gctx.stroke();
+    const last = hs[hs.length-1];
+    gctx.fillStyle = '#5ad19a';
+    gctx.beginPath(); gctx.arc(X(last.t), Y(last.A / A0), 3, 0, 2*Math.PI); gctx.fill();
+  }
+}
+
+//----------------------------- 画像の保存 -----------------------------
+// キャンバスの背景は CSS のグラデーションなので、書き出し時に同じ背景と時刻の注記を重ねる。
+function savePNG() {
+  const w = cv.width, h = cv.height, dpr = window.devicePixelRatio || 1;
+  const off = document.createElement('canvas');
+  off.width = w; off.height = h;
+  const o = off.getContext('2d');
+  const g = o.createRadialGradient(w*0.5, h*0.45, 0, w*0.5, h*0.45, Math.hypot(w*0.5, h*0.55));
+  g.addColorStop(0, '#131a24'); g.addColorStop(0.7, '#0e1116'); g.addColorStop(1, '#0e1116');
+  o.fillStyle = g; o.fillRect(0, 0, w, h);
+  o.drawImage(cv, 0, 0);
+  o.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const label = state.drawnInit ? '手描きの曲線'
+              : document.querySelector(`[data-preset="${currentPreset}"]`).textContent;
+  o.font = '600 14px -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", sans-serif';
+  o.fillStyle = '#d6dde6'; o.textBaseline = 'bottom';
+  o.fillText(`曲線短縮流　${label}　t = ${state.time.toFixed(3)}`, 14, h/dpr - 12);
+  off.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `mcf2d-${state.drawnInit ? 'drawn' : currentPreset}-t${state.time.toFixed(3)}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }, 'image/png');
 }
 
 //----------------------------- メインループ -----------------------------
@@ -609,32 +744,41 @@ function resampleClosed(raw, N) {
   // 始点と終点をつなぐ
   return redistribute(wpts, N);
 }
+// マウス・タッチ・ペンを Pointer Events で共通に扱う（2本目以降の指は無視）
 cv.addEventListener('pointerdown', (e) => {
-  if (!state.drawing) return;
+  if (!state.drawing || !e.isPrimary) return;
   const r = cv.getBoundingClientRect();
   state.isDrawing = true;
   state.drawPts = [{ x: e.clientX - r.left, y: e.clientY - r.top }];
   cv.setPointerCapture(e.pointerId);
 });
 cv.addEventListener('pointermove', (e) => {
-  if (!state.drawing || !state.isDrawing) return;
+  if (!state.drawing || !state.isDrawing || !e.isPrimary) return;
   const r = cv.getBoundingClientRect();
   state.drawPts.push({ x: e.clientX - r.left, y: e.clientY - r.top });
   draw();
 });
-cv.addEventListener('pointerup', () => {
-  if (!state.drawing || !state.isDrawing) return;
+function finishDrawing(e) {
+  if (!state.drawing || !state.isDrawing || !e.isPrimary) return;
   state.isDrawing = false;
   if (state.drawPts.length > 6) {
     let pts = resampleClosed(state.drawPts, state.N);
     if (signedArea(pts) < 0) pts.reverse();
+    state.drawnInit = pts.map(p => ({ x: p.x, y: p.y }));
+    showNote('drawn');
+    prevArea = null; prevTime = null;
     setCurve(pts);
   }
   state.drawPts = [];
-  state.drawing = false;
-  document.getElementById('drawBtn').classList.remove('active');
-  cv.style.cursor = 'crosshair';
-});
+  setDrawMode(false);
+}
+cv.addEventListener('pointerup', finishDrawing);
+cv.addEventListener('pointercancel', finishDrawing);
+function setDrawMode(on) {
+  state.drawing = on;
+  document.getElementById('drawBtn').classList.toggle('active', on);
+  cv.classList.toggle('drawing', on);
+}
 
 //----------------------------- UI 結線 -----------------------------
 function bindUI() {
@@ -655,8 +799,10 @@ function bindUI() {
     document.getElementById('play').textContent = '▶ 再生';
     document.getElementById('play').classList.remove('active');
     prevArea = null; prevTime = null;
-    loadPreset(currentPreset);
+    if (state.drawnInit) setCurve(redistribute(state.drawnInit, state.N));  // 手描き曲線はその形に戻す
+    else loadPreset(currentPreset);
   });
+  document.getElementById('saveBtn').addEventListener('click', savePNG);
 
   document.querySelectorAll('[data-preset]').forEach(b => {
     b.addEventListener('click', () => {
@@ -671,12 +817,10 @@ function bindUI() {
 
   const drawBtn = document.getElementById('drawBtn');
   drawBtn.addEventListener('click', () => {
-    state.drawing = !state.drawing;
     state.running = false;
     document.getElementById('play').textContent = '▶ 再生';
     document.getElementById('play').classList.remove('active');
-    drawBtn.classList.toggle('active', state.drawing);
-    cv.style.cursor = state.drawing ? 'crosshair' : 'crosshair';
+    setDrawMode(!state.drawing);
   });
 
   const dt = document.getElementById('dt');

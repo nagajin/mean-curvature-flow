@@ -26,6 +26,7 @@
   .group { background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:12px; }
   .group h2 { font-size:12px; margin:0 0 10px; color:var(--accent); font-weight:600; }
   .btn-row { display:flex; gap:6px; flex-wrap:wrap; }
+  .btn-row button { white-space:nowrap; padding-left:8px; padding-right:8px; }
   button { background:#233040; color:var(--text); border:1px solid var(--border); border-radius:8px;
     padding:7px 10px; font-size:12px; cursor:pointer; transition:background .12s,border-color .12s; font-family:inherit; }
   button:hover { background:#2c3c50; border-color:#3a4a5e; }
@@ -58,6 +59,26 @@
   .legend .bar { height:10px; flex:1; border-radius:4px; background:linear-gradient(90deg,#3b82f6,#e5e7eb,#ef4444); }
   hr.sep { border:none; border-top:1px solid var(--border); margin:10px 0; }
   code { background:#0e1116; padding:1px 5px; border-radius:4px; color:var(--accent2); font-size:11px; }
+  .note { font-size:11.5px; line-height:1.6; background:#0e1116; border-left:3px solid var(--accent2); border-radius:6px; padding:7px 9px; margin-top:8px; }
+  .note b { color:var(--accent2); font-weight:600; }
+  .arrow-key { font-size:11px; color:var(--muted); margin:-2px 0 0 23px; line-height:1.5; }
+  .arrow-key i { font-style:normal; font-weight:600; }
+  #cv { touch-action:none; }   /* 1本指で回転・2本指で拡大縮小（ページはパネル側でスクロール） */
+  #graph { height:130px; margin-top:10px; background:#0e1116; border-radius:6px; cursor:default; }
+  .graph-key { font-size:11px; color:var(--muted); margin-top:4px; }
+  /* 狭い画面（スマホ縦）：上にキャンバス、下に操作パネル（パネルだけスクロール） */
+  @media (max-width:760px) {
+    #app { flex-direction:column; height:100vh; height:100dvh; }
+    #stage { flex:0 0 52%; }
+    #sidebar { width:auto; flex:1 1 auto; min-height:0; border-left:none; border-top:1px solid var(--border); padding:12px 12px 32px; }
+    #status { top:8px; left:8px; font-size:11px; padding:4px 8px; }
+    #hintbar { bottom:8px; left:8px; }
+  }
+  @media (pointer:coarse) {
+    button { padding-top:10px; padding-bottom:10px; font-size:13px; }
+    .check input { width:20px; height:20px; }
+    input[type=range] { height:28px; }
+  }
 </style>
 </head>
 <body>
@@ -71,14 +92,17 @@
   <div id="sidebar">
     <h1>平均曲率流シミュレータ (3D)</h1>
     <p class="sub">𝔼³ 内の閉曲面の平均曲率流<br>∂F/∂t = ℋₜ·Nₜ &nbsp;(平均曲率ベクトル ΔF 方向への変形)</p>
-    <p class="nav">▸ <a href="index.html">2次元 曲線短縮流のページへ</a> &nbsp;/&nbsp; <a href="https://nagajin.github.io/differential-geometry-demos/">微分幾何 教材デモ集</a></p>
+    <p class="nav">▸ <a href="index.html">2次元 曲線短縮流のページへ</a> &nbsp;/&nbsp; <a href="https://nagajin.github.io/differential-geometry-demos/">微分幾何 教材デモ集</a> &nbsp;/&nbsp; <a href="https://nagajin.github.io/equifocal-demos/">等焦部分多様体シミュレータ</a></p>
 
     <div class="group">
       <h2>再生コントロール</h2>
       <div class="btn-row">
         <button id="play" class="primary wide">▶ 再生</button>
-        <button id="stepBtn" class="wide">⏭ 1ステップ</button>
+        <button id="stepBtn" class="wide">⏭ コマ送り</button>
         <button id="reset" class="wide">↺ リセット</button>
+      </div>
+      <div class="btn-row" style="margin-top:6px">
+        <button id="saveBtn" class="wide">📷 画像を保存 (PNG)</button>
       </div>
     </div>
 
@@ -92,6 +116,7 @@
         <button data-preset="bumpy">でこぼこ球</button>
         <button data-preset="cube">丸み四角柱</button>
       </div>
+      <div id="note" class="note"></div>
     </div>
 
     <div class="group">
@@ -113,6 +138,7 @@
       <label class="check"><input type="checkbox" id="opt-wire"> ワイヤーフレーム</label>
       <label class="check"><input type="checkbox" id="opt-spin"> 自動回転</label>
       <label class="check"><input type="checkbox" id="opt-hvec" checked> 平均曲率ベクトル H を表示 (黄)</label>
+      <div class="arrow-key"><i style="color:#ffd24a">黄</i>：長さは |H| に比例 ／ <i style="color:#ff8a3d">橙</i>：長すぎるので途中で切った矢印</div>
       <label class="check"><input type="checkbox" id="opt-trans"> 物体を半透明にする (矢印の起点を見やすく)</label>
       <div class="legend"><span>負(鞍)</span><div class="bar"></div><span>正(凸)</span></div>
     </div>
@@ -124,8 +150,11 @@
         <div class="m"><span>表面積 A</span><span id="mt-area">—</span></div>
         <div class="m"><span class="key">dA/dt (球は −16π)</span><span id="mt-dadt" class="key">—</span></div>
         <div class="m"><span>囲む体積 V</span><span id="mt-vol">—</span></div>
+        <div class="m"><span>等周比 A³/36πV² (球で 1)</span><span id="mt-iso">—</span></div>
         <div class="m"><span>頂点 / 面</span><span id="mt-n">—</span></div>
       </div>
+      <canvas id="graph"></canvas>
+      <div class="graph-key"><span style="color:var(--good)">━</span> A/A₀ &nbsp; <span style="color:var(--accent)">━</span> V/V₀ &nbsp; <span style="color:var(--accent2)">┅</span> 球の理論値（球のときだけ）</div>
       <div class="hint">球は半径 R が <code>dR/dt=−2/R</code> に従い <code>T=R₀²/4=A₀/16π</code> で1点に崩壊、表面積は一定速度 <code>−16π</code> で減少します。<b>ダンベル形は3次元では細いくびれがピンチ</b>し特異点を生じます (PDF 図1.1.6)。<b>トーラスは凸でないため1点には崩壊せず</b>、管が中心円へピンチします（凸曲面のみ丸い1点へ収束：Huisken の定理）。</div>
     </div>
   </div>
@@ -154,11 +183,12 @@ let S = {
   time:0, running:false, extinct:false,
   dt:0.0006, sub:3, spf:2,
   showCurv:true, wire:false, spin:false, showHvec:true, translucent:false,
-  initialArea:0, Ttheory:0, initMaxE:1,
+  initialArea:0, Ttheory:0,
   isSphere:false,
   prevArea:null, prevTime:null,
-  // カメラ
-  cam:{ az:0.6, el:0.35, dist:5.0, focal:0 },
+  hist:[],                          // 時刻歴 [{t, A, V}]（グラフ用）
+  // カメラ（dist はプリセットの外接半径 fitR に合わせて loadPreset で決める）
+  cam:{ az:0.6, el:0.35, dist:5.0, focal:0, fitR:1.8 },
   // 一時バッファ
   vnx:null, vny:null, vnz:null, hsign:null, mass:null, cw:null, diag:null,
   vHx:null, vHy:null, vHz:null,   // 平均曲率ベクトル（=流れの速度）
@@ -176,8 +206,12 @@ function resize(){
   const dpr = window.devicePixelRatio||1;
   cv.width = Math.floor(r.width*dpr); cv.height = Math.floor(r.height*dpr);
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  S.cam.focal = Math.min(r.width,r.height)*0.62;
+  S.cam.focal = Math.min(r.width,r.height)*0.9;
   draw();
+  drawGraph();
+}
+function zoomBy(k){
+  S.cam.dist = Math.max(1.6*S.cam.fitR, Math.min(9*S.cam.fitR, S.cam.dist*k));
 }
 // モデル回転 (Y軸az → X軸el)
 function rotate(x,y,z){
@@ -421,14 +455,23 @@ function step(){
     const slow  = 1 / (1 + 0.6 * Math.max(0, Q3));
     const speed = Math.pow(S.initialArea / Math.max(Acur, 1e-10), 0.55);
     S.dt = dtBase * slow * speed;
+    // 終盤に Δt が R² (≈ A/4π) に比べて大きくなると、半陰的スキームの遅れで消滅時刻が
+    // 理論値より遅れる。1 ステップでの R² の変化（球で 4Δt）を 4% 以下に抑える。
+    S.dt = Math.min(S.dt, 0.01 * Acur / (4*Math.PI));
   }
 
   const minArea=assemble();
   const V=volumeNow();
-  // 体積が消失 → 限界集合の次元を境界ボックスの広がりで判定（点 / 曲線 など）
+  // 体積が消失 → 限界集合の形を境界ボックスの3辺の比で判定（点 / 曲線 など）
   if(V<S.initialVol*0.0015){ S.dt = dtBase; markSingular(classifyCollapse()); return; }
-  // 体積は残るが局所的に面が潰れた → ネックピンチ
-  if(minArea<1e-7){ S.dt = dtBase; markSingular('ネックピンチ特異点が発生しました'); return; }
+  // 局所的に面が潰れた：くびれが残る形（等周比が大きい）ならネックピンチ。
+  // ほぼ丸くなっていれば、消える直前の小さな曲面でメッシュが潰れただけなので崩壊として判定する。
+  if(minArea<1e-7){
+    S.dt = dtBase;
+    const A=surfaceArea();
+    markSingular(A*A*A/(36*Math.PI*V*V) > 1.5 ? 'ネックピンチ特異点が発生しました' : classifyCollapse());
+    return;
+  }
 
   const bx=new Float64Array(S.nv), by=new Float64Array(S.nv), bz=new Float64Array(S.nv);
   for(let i=0;i<S.nv;i++){ bx[i]=S.mass[i]*S.px[i]; by[i]=S.mass[i]*S.py[i]; bz[i]=S.mass[i]*S.pz[i]; }
@@ -450,12 +493,13 @@ function extents(){
     if(x<xn)xn=x; if(x>xp)xp=x; if(y<yn)yn=y; if(y>yp)yp=y; if(z<zn)zn=z; if(z>zp)zp=z; }
   return [xp-xn, yp-yn, zp-zn];
 }
-// 体積消失時に，限界集合が点か低次元集合（曲線など）かを判定
+// 体積消失時に、限界集合が点か低次元集合（曲線など）かを判定。
+// 初期の大きさとの比較だと、消える直前に Δt が小さいと丸い形でも「曲線」と誤判定したので、
+// 縮んだ形そのものの縦横比で判定する（3辺とも同程度＝点、1辺だけ小さい＝円、2辺小さい＝線分）。
 function classifyCollapse(){
-  const thr=0.12*(S.initMaxE||1);
-  const large=extents().filter(v=>v>thr).length;
-  if(large<=0) return '1点へ崩壊しました（点状特異点）';
-  if(large>=2) return '中心の円（曲線）へ収縮しました：管がピンチ（点ではありません）';
+  const e=extents().sort((a,b)=>b-a);
+  if(e[2]>0.35*e[0]) return '1点へ崩壊しました（点状特異点）';
+  if(e[1]>0.35*e[0]) return '中心の円（曲線）へ収縮しました：管がピンチ（点ではありません）';
   return '線分（1次元）へ収縮しました';
 }
 
@@ -485,10 +529,85 @@ function updateMetrics(){
   document.getElementById('mt-area').textContent=A.toFixed(3);
   document.getElementById('mt-vol').textContent=V.toFixed(3);
   document.getElementById('mt-n').textContent=S.nv+' / '+S.nf;
+  document.getElementById('mt-iso').textContent = V>1e-12 ? (A*A*A/(36*Math.PI*V*V)).toFixed(4) : '—';
   if(S.prevArea!==null && S.time>S.prevTime){
     document.getElementById('mt-dadt').textContent=((A-S.prevArea)/(S.time-S.prevTime)).toFixed(2);
   }
   S.prevArea=A; S.prevTime=S.time;
+  const h=S.hist;
+  if(!h.length || S.time>h[h.length-1].t){ h.push({t:S.time, A, V}); drawGraph(); }
+}
+
+//---------------------------- 面積・体積の時刻グラフ ----------------------------
+// A/A₀（緑）と V/V₀（青）。球のときだけ理論値 A/A₀ = 1 − t/T, V/V₀ = (1 − t/T)^{3/2}（橙の破線）を重ねる。
+// 横軸は球なら [0, 1.04T] に固定、それ以外は消滅時刻が分からないので経過時刻に合わせて伸ばす。
+const gcv=document.getElementById('graph');
+const gctx=gcv.getContext('2d');
+function drawGraph(){
+  const w=gcv.clientWidth, h=gcv.clientHeight;
+  if(!w || !h) return;
+  const dpr=window.devicePixelRatio||1;
+  if(gcv.width!==Math.round(w*dpr) || gcv.height!==Math.round(h*dpr)){ gcv.width=Math.round(w*dpr); gcv.height=Math.round(h*dpr); }
+  gctx.setTransform(dpr,0,0,dpr,0,0);
+  gctx.clearRect(0,0,w,h);
+  const hs=S.hist;
+  if(!hs.length || !(S.initialArea>0) || !(S.initialVol>0)) return;
+  const T=S.Ttheory, tlast=hs[hs.length-1].t;
+  const tmax = S.isSphere ? T*1.04 : Math.max(tlast*1.12, 1e-3);
+  const pl=24, pr=10, pt=10, pb=18;
+  const X=t=>pl+(w-pl-pr)*Math.min(t,tmax)/tmax;
+  const Y=a=>pt+(h-pt-pb)*(1-Math.max(0,Math.min(1,a)));
+  gctx.strokeStyle='rgba(255,255,255,0.15)'; gctx.lineWidth=1;
+  gctx.beginPath(); gctx.moveTo(pl,pt); gctx.lineTo(pl,Y(0)); gctx.lineTo(w-pr,Y(0)); gctx.stroke();
+  gctx.strokeStyle='rgba(255,255,255,0.06)';
+  gctx.beginPath(); gctx.moveTo(pl,Y(0.5)); gctx.lineTo(w-pr,Y(0.5)); gctx.stroke();
+  gctx.fillStyle='#8b97a6'; gctx.font='10px -apple-system, BlinkMacSystemFont, sans-serif';
+  gctx.textAlign='right'; gctx.textBaseline='middle';
+  gctx.fillText('1',pl-5,Y(1)); gctx.fillText('0',pl-5,Y(0));
+  gctx.textAlign='left'; gctx.textBaseline='top';
+  gctx.fillText('t →',pl+2,Y(0)+3);
+  gctx.textAlign='right';
+  gctx.fillText(S.isSphere ? '' : tmax.toFixed(3), w-pr, Y(0)+3);
+  if(S.isSphere){
+    gctx.textAlign='center'; gctx.fillText('T',X(T),Y(0)+3);
+    gctx.strokeStyle='#ffb454'; gctx.lineWidth=1.2; gctx.setLineDash([4,3]);
+    gctx.beginPath(); gctx.moveTo(X(0),Y(1)); gctx.lineTo(X(T),Y(0)); gctx.stroke();
+    gctx.beginPath();
+    for(let q=0;q<=60;q++){ const t=T*q/60, y=Y(Math.pow(1-t/T,1.5)); q ? gctx.lineTo(X(t),y) : gctx.moveTo(X(t),y); }
+    gctx.stroke(); gctx.setLineDash([]);
+  }
+  const series=[['V',S.initialVol,'#4ea1ff'],['A',S.initialArea,'#5ad19a']];
+  for(const [key,base,col] of series){
+    gctx.strokeStyle=col; gctx.lineWidth=2; gctx.beginPath();
+    hs.forEach((p,i)=>{ const x=X(p.t), y=Y(p[key]/base); i ? gctx.lineTo(x,y) : gctx.moveTo(x,y); });
+    gctx.stroke();
+    const last=hs[hs.length-1];
+    gctx.fillStyle=col; gctx.beginPath(); gctx.arc(X(last.t),Y(last[key]/base),3,0,2*Math.PI); gctx.fill();
+  }
+}
+
+//---------------------------- 画像の保存 ----------------------------
+// キャンバスの背景は CSS のグラデーションなので、書き出し時に同じ背景と時刻の注記を重ねる。
+function savePNG(){
+  const w=cv.width, h=cv.height, dpr=window.devicePixelRatio||1;
+  const off=document.createElement('canvas'); off.width=w; off.height=h;
+  const o=off.getContext('2d');
+  const g=o.createRadialGradient(w*0.5,h*0.42,0,w*0.5,h*0.42,Math.hypot(w*0.5,h*0.58));
+  g.addColorStop(0,'#131a24'); g.addColorStop(0.72,'#0e1116'); g.addColorStop(1,'#0e1116');
+  o.fillStyle=g; o.fillRect(0,0,w,h);
+  o.drawImage(cv,0,0);
+  o.setTransform(dpr,0,0,dpr,0,0);
+  const label=document.querySelector(`[data-preset="${currentPreset}"]`).textContent;
+  o.font='600 14px -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", sans-serif';
+  o.fillStyle='#d6dde6'; o.textBaseline='bottom';
+  o.fillText(`曲面の平均曲率流　${label}　t = ${S.time.toFixed(3)}`, 14, h/dpr-12);
+  off.toBlob(blob=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`mcf3d-${currentPreset}-t${S.time.toFixed(3)}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  },'image/png');
 }
 
 //---------------------------- 色 ----------------------------
@@ -556,18 +675,20 @@ function draw(){
 
   // 平均曲率ベクトル H（= 流れの速度 ΔF，凸では内向き）の矢印
   // スケールは初期形状で固定 (S.hvecScale)。縮小するにつれ |H|=2/R が増え、矢印が劇的に伸びる。
-  // 離散尖点の暴れを防ぐため上限 (hvecCap) でクリップ。
+  // 上限 (hvecCap) で切った矢印は橙にして、「本当はもっと長い」ことが分かるようにする。
   if(S.showHvec){
     const gain = S.hvecScale || 0.1;
     const cap  = S.hvecCap   || 3.0;
     const stepi=Math.max(1, Math.round(S.nv/70));
-    ctx.strokeStyle='#ffd24a'; ctx.fillStyle='#ffd24a'; ctx.lineWidth=1.3;
+    ctx.lineWidth=1.3;
     for(let i=0;i<S.nv;i+=stepi){
       const rn=rotate(S.vnx[i],S.vny[i],S.vnz[i]);
       if(rn[2]<=0.02) continue;
       let dx = S.vHx[i]*gain, dy = S.vHy[i]*gain, dz = S.vHz[i]*gain;
       const dl = Math.hypot(dx,dy,dz);
-      if (dl > cap){ const k = cap/dl; dx*=k; dy*=k; dz*=k; }
+      const clipped = dl > cap;
+      if (clipped){ const k = cap/dl; dx*=k; dy*=k; dz*=k; }
+      ctx.strokeStyle = ctx.fillStyle = clipped ? '#ff8a3d' : '#ffd24a';
       const tp=rotate(S.px[i]+dx, S.py[i]+dy, S.pz[i]+dz);
       const depth=d-tp[2];
       drawArrow2(SX[i], SY[i], cx+f*tp[0]/depth, cy-f*tp[1]/depth);
@@ -586,15 +707,28 @@ function drawArrow2(x1,y1,x2,y2){
 }
 
 //---------------------------- ロード ----------------------------
+// プリセットごとの「この例で起きること」（初期曲面の下に表示）
+const NOTES={
+  sphere:    '形を保ったまま縮む。H = 2/R（主曲率の和）なので <b>R(t)² = R₀² − 4t</b>、T = R₀²/4。表面積は一定の速さ 16π で減る。',
+  ellipsoid: '凸なので、丸くなりながら1点に縮む（Huisken）。長い軸の先端ほど曲率が大きく速く動く。',
+  dumbbell:  'くびれの円は半径が小さく主曲率 1/r が大きいので、<b>くびれが先に細ってちぎれる</b>（ネックピンチ）。2D の同じ形の曲線はちぎれない。',
+  torus:     '凸でない。管の主曲率 1/r が大きいので管が細っていき、<b>1点ではなく円（曲線）に縮む</b>。',
+  bumpy:     '小さな凹凸ほど速く消える。この例では丸くなってから1点に縮む。',
+  cube:      '角と辺は曲率が大きいので<b>先に丸まる</b>。凸なので丸い1点に縮む（Huisken）。',
+};
+
 function loadPreset(name){
   currentPreset=name;
   const r=PRESETS[name]();
   setupTopology(r.mesh);
   S.isSphere=r.sphere;
-  S.time=0; S.extinct=false; S.prevArea=null; S.prevTime=null;
+  S.time=0; S.extinct=false; S.prevArea=null; S.prevTime=null; S.hist=[];
+  document.getElementById('note').innerHTML='<b>見どころ</b>　'+NOTES[name];
+  // 視点：外接半径に合わせて距離を決め、どのプリセットも画面の同じくらいの大きさで始める
+  { let Rb=0; for(let i=0;i<S.nv;i++) Rb=Math.max(Rb, Math.hypot(S.px[i],S.py[i],S.pz[i]));
+    S.cam.fitR=Rb||1; S.cam.dist=2.8*S.cam.fitR; }
   assemble(); computeMeanCurvature();
   S.initialArea=surfaceArea(); S.initialVol=volumeNow();
-  S.initMaxE=Math.max(...extents());
   S.Ttheory=S.initialArea/(16*Math.PI);
   // 矢印スケール: 初期形状の面積重み付き平均 |H| (= ∫|H|dA / A) を基準に固定。
   // (鋭い角・尖点の影響を分散して取り込み、凸閉曲面では概ね 2/R に近い値になる。)
@@ -607,7 +741,7 @@ function loadPreset(name){
     const refH0 = sumH/Math.max(sumM,1e-12) || 1e-9;
     const Reff0 = Math.sqrt(S.initialArea/(4*Math.PI));
     S.hvecScale = (0.30 * Reff0) / refH0;
-    S.hvecCap   = 1.8 * Reff0;                  // 矢印の上限（離散尖点の暴れ防止）
+    S.hvecCap   = 1.0 * Reff0;   // 矢印の上限。初期形状の最長（でこぼこ球で 0.88·R_eff）は切らない長さ
   }
   document.getElementById('banner').style.display='none';
   document.getElementById('st-T').textContent=S.Ttheory.toFixed(3);
@@ -628,19 +762,38 @@ function frame(){
   requestAnimationFrame(frame);
 }
 
-//---------------------------- マウス操作 ----------------------------
-let dragging=false, lastX=0, lastY=0;
-cv.addEventListener('pointerdown',e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; cv.setPointerCapture(e.pointerId); });
+//---------------------------- マウス・タッチ操作 ----------------------------
+// Pointer Events で共通化：1本（マウス・指）で回転、2本指の間隔の変化で拡大縮小、ホイールでも拡大縮小
+const pointers=new Map();           // pointerId -> {x,y}
+let pinchDist=0;
+function pointerSpread(){ const [a,b]=[...pointers.values()]; return Math.hypot(a.x-b.x, a.y-b.y); }
+cv.addEventListener('pointerdown',e=>{
+  pointers.set(e.pointerId,{x:e.clientX, y:e.clientY});
+  cv.setPointerCapture(e.pointerId);
+  if(pointers.size===2) pinchDist=pointerSpread();
+});
 cv.addEventListener('pointermove',e=>{
-  if(!dragging) return;
-  S.cam.az += (e.clientX-lastX)*0.008;
-  S.cam.el += (e.clientY-lastY)*0.008;
-  S.cam.el = Math.max(-1.45,Math.min(1.45,S.cam.el));
-  lastX=e.clientX; lastY=e.clientY;
+  const p=pointers.get(e.pointerId);
+  if(!p) return;
+  if(pointers.size===1){
+    S.cam.az += (e.clientX-p.x)*0.008;
+    S.cam.el += (e.clientY-p.y)*0.008;
+    S.cam.el = Math.max(-1.45,Math.min(1.45,S.cam.el));
+  }
+  p.x=e.clientX; p.y=e.clientY;
+  if(pointers.size===2){
+    const d=pointerSpread();
+    if(pinchDist>0 && d>0) zoomBy(pinchDist/d);
+    pinchDist=d;
+  }
   draw();
 });
-cv.addEventListener('pointerup',()=>{ dragging=false; });
-cv.addEventListener('wheel',e=>{ e.preventDefault(); S.cam.dist*=Math.exp(e.deltaY*0.0012); S.cam.dist=Math.max(2.6,Math.min(12,S.cam.dist)); draw(); },{passive:false});
+function endPointer(e){ pointers.delete(e.pointerId); pinchDist = pointers.size===2 ? pointerSpread() : 0; }
+cv.addEventListener('pointerup',endPointer);
+cv.addEventListener('pointercancel',endPointer);
+cv.addEventListener('wheel',e=>{ e.preventDefault(); zoomBy(Math.exp(e.deltaY*0.0012)); draw(); },{passive:false});
+if(window.matchMedia('(pointer: coarse)').matches)
+  document.getElementById('hintbar').textContent='1本指で回転 / 2本指で拡大縮小';
 
 //---------------------------- UI ----------------------------
 let currentPreset='dumbbell';
@@ -652,6 +805,7 @@ function bindUI(){
     for(let s=0;s<S.spf;s++){ step(); if(S.extinct) break; } computeMeanCurvature(); updateMetrics(); draw(); });
   document.getElementById('reset').addEventListener('click',()=>{ S.running=false;
     playBtn.textContent='▶ 再生'; playBtn.classList.remove('active'); loadPreset(currentPreset); });
+  document.getElementById('saveBtn').addEventListener('click',savePNG);
   document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click',()=>{
     S.running=false; playBtn.textContent='▶ 再生'; playBtn.classList.remove('active'); loadPreset(b.dataset.preset); }));
 

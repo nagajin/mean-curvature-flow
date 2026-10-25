@@ -85,7 +85,7 @@
 <div id="app">
   <div id="stage">
     <canvas id="cv"></canvas>
-    <div id="status">時刻 t = <b id="st-t">0.000</b> &nbsp;/&nbsp; 球の理論消滅時刻 A₀/16π = <b id="st-T">—</b></div>
+    <div id="status">時刻 t = <b id="st-t">0.000</b> &nbsp;/&nbsp; <span id="st-Tlab">理論消滅時刻</span> = <b id="st-T">—</b></div>
     <div id="hintbar">ドラッグで回転 / ホイールで拡大縮小</div>
     <div id="banner"></div>
   </div>
@@ -711,7 +711,7 @@ function drawArrow2(x1,y1,x2,y2){
 const NOTES={
   sphere:    '形を保ったまま縮む。H = 2/R（主曲率の和）なので <b>R(t)² = R₀² − 4t</b>、T = R₀²/4。表面積は一定の速さ 16π で減る。',
   ellipsoid: '凸なので、丸くなりながら1点に縮む（Huisken）。長い軸の先端ほど曲率が大きく速く動く。',
-  dumbbell:  'くびれの円は半径が小さく主曲率 1/r が大きいので、<b>くびれが先に細ってちぎれる</b>（ネックピンチ）。2D の同じ形の曲線はちぎれない。',
+  dumbbell:  'くびれの円は半径が小さく主曲率 1/r が大きいので、<b>くびれが先に細ってちぎれる</b>（ネックピンチ）。この曲面の断面の曲線を 2D の曲線短縮流で動かすと、くびれは太ってちぎれない。',
   torus:     '凸でない。管の主曲率 1/r が大きいので管が細っていき、<b>1点ではなく円（曲線）に縮む</b>。',
   bumpy:     '小さな凹凸ほど速く消える。この例では丸くなってから1点に縮む。',
   cube:      '角と辺は曲率が大きいので<b>先に丸まる</b>。凸なので丸い1点に縮む（Huisken）。',
@@ -729,7 +729,18 @@ function loadPreset(name){
     S.cam.fitR=Rb||1; S.cam.dist=2.8*S.cam.fitR; }
   assemble(); computeMeanCurvature();
   S.initialArea=surfaceArea(); S.initialVol=volumeNow();
-  S.Ttheory=S.initialArea/(16*Math.PI);
+  // 消滅時刻の目安。球は頂点が半径 R₀ の球面上にあり、多面体の表面積比は 1 − 4t/R₀² に従うので T = R₀²/4。
+  // （多面体の表面積から A₀/16π とすると、内接多面体の表面積が球面より小さいぶん 0.5%（細分 3）小さく出ていた。）
+  // それ以外の形には厳密な消滅時刻がないので、同じ表面積の球の値 A₀/16π を参考として出す。
+  if(S.isSphere){
+    let sr=0; for(let i=0;i<S.nv;i++) sr+=Math.hypot(S.px[i],S.py[i],S.pz[i]);
+    const R0=sr/S.nv;
+    S.Ttheory=R0*R0/4;
+    document.getElementById('st-Tlab').textContent='理論消滅時刻 R₀²/4';
+  } else {
+    S.Ttheory=S.initialArea/(16*Math.PI);
+    document.getElementById('st-Tlab').textContent='参考：同じ表面積の球なら A₀/16π';
+  }
   // 矢印スケール: 初期形状の面積重み付き平均 |H| (= ∫|H|dA / A) を基準に固定。
   // (鋭い角・尖点の影響を分散して取り込み、凸閉曲面では概ね 2/R に近い値になる。)
   { let sumH=0, sumM=0;
@@ -750,11 +761,16 @@ function loadPreset(name){
 }
 
 //---------------------------- ループ ----------------------------
+// 表示用の平均曲率（色・矢印）。step() の中で組み立てた行列は 1 つ前の形のものなので、
+// そのまま使うとステップの速度 (x^{n+1}−x^n)/Δt を表示することになり、現在の形の値と O(Δt) ずれる。
+// 現在の形で組み直してから計算する。
+function refreshCurvature(){ assemble(); computeMeanCurvature(); }
+
 function frame(){
   if(S.spin && !S.running) S.cam.az+=0.004;
   if(S.running && !S.extinct){
     for(let s=0;s<S.spf;s++){ step(); if(S.extinct) break; }
-    computeMeanCurvature();
+    refreshCurvature();
     updateMetrics();
     if(S.spin) S.cam.az+=0.004;
   }
@@ -802,7 +818,7 @@ function bindUI(){
   playBtn.addEventListener('click',()=>{ if(S.extinct) return; S.running=!S.running;
     playBtn.textContent=S.running?'⏸ 一時停止':'▶ 再生'; playBtn.classList.toggle('active',S.running); });
   document.getElementById('stepBtn').addEventListener('click',()=>{ if(S.extinct) return;
-    for(let s=0;s<S.spf;s++){ step(); if(S.extinct) break; } computeMeanCurvature(); updateMetrics(); draw(); });
+    for(let s=0;s<S.spf;s++){ step(); if(S.extinct) break; } refreshCurvature(); updateMetrics(); draw(); });
   document.getElementById('reset').addEventListener('click',()=>{ S.running=false;
     playBtn.textContent='▶ 再生'; playBtn.classList.remove('active'); loadPreset(currentPreset); });
   document.getElementById('saveBtn').addEventListener('click',savePNG);
